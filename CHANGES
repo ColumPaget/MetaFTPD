@@ -1,0 +1,24 @@
+version 1.0.1
+	More bugfixes (mostly memory leaks). '--version' now displays correct version. Idle timeouts now work.
+
+version 1.0.0
+	Added 'TAR' file structure for transfers. Many bugfixes.
+
+version 1.0.0
+	Added 'hook' functions for login, logout, upload, download, delete, rename and opening data connections. These allow a script to be run when any of these actions are performed.
+	Various other bugfixes.
+
+version 0.0.6
+	Missing libUseful included in this version! Added '--enable-pam=no' option to configure script for systems where pam is wrongly detected.
+
+version 0.0.5
+	RNTO bug fixed, was returning 220 rather than 250 for successful reply
+
+version 0.0.4
+	sha256 and sha512 passwords now supported for native authentication. Nasty 'home directory' bug when using PAM fixed. ASCII transfers bug fixed. Various minor improvements and fixes.
+
+version 0.0.3
+	Added XSHA256, XSHA512 and HASH. Added 'MaxFileSize' config item. Various bugfixes.
+
+version 0.0.2
+	Bugfixes for authentication and hashing commands like XMD5 and XSHA

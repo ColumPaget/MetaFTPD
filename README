@@ -1,0 +1,243 @@
+AUTHOR:
+MetaFTPd and libUseful are (C) 2012 Colum Paget. They are released under the GPL so you may do anything with them that the GPL allows.
+
+Email: colums.projects@gmail.com
+Blogs: 
+	tech: http://idratherhack.blogspot.com 
+	rants: http://thesingularitysucks.blogspot.com 
+
+
+DISCLAIMER:
+	This is free software. It comes with no guarentees and I take no responsiblity if it makes your computer explode or opens a portal to the demon dimensions, or does (or doesn't do) anything.
+
+
+SYNOPSIS:
+
+	MetaFTPd is an ftp demon that supports both standalone and inetd operation, transparent proxying, chrooting, compressed file transfers and extended commands like XMD5 and SITE CHMOD.
+
+USAGE:
+Command Line Arguments:
+
+-proxy          Proxy Mode. Act as a transparent proxy, requires a kernel that supports obtaining the 'target' address. By-request proxying that's triggered by logins containing a hostname, or by use of the 'SITE proxy' command do not need this.
+-chroot         ChRoot. ChRoot to directory on program start.
+-chhome         ChHome. Chroot into the home dir of the user after logon.
+-chshare				ChShare, chroot into a shared directory after logon.
+-port           Port to listen on (default 21)
+-p              Port to listen on (default 21)
+-nodemon        Don't background
+-i              Use out of inetd, not as standalone server (implies -nodemon)
+-inetd          Use out of inetd, not as standalone server (implies -nodemon)
+-f              path to config file
+-a              path to 'native' authentication file
+-allowusers     List of users allowed to log on
+-denyusers      List of users to deny logon to
+-nopasv         Don't use passive mode
+-dclow          Minimum port for Data connections
+-dchigh         Maximum port for Data connections
+-syslog         Use syslog for logging
+-hostlogs       Create logfiles for each host (not syslog)
+-idle           'Soft' idle timeout (user can override)
+-maxidle        'Hard' idle timeout
+-mlocks         Mandatory Locks
+-alocks         Advisory Locks
+-malocks        Mandatory write, Advisory read Locks
+-bindaddress    Bind server to address
+-logfile        Logfile path, can include the variables $(ClientIP) and $(User)
+-dcus           Data Connnection Up Script
+-dcds           Data Connection DownScript
+-?              This help
+-help           This help
+--help          This help
+
+-user 'Native' user authentication setup
+        metaftpd -user add <username> <password> <home directory> [ -t <authentication type> ] [ -a <auth file path> ] [Arg 1] [Arg 2]... [Arg n]
+        metaftpd -user del <username> [ -a <auth file path> ]
+        metaftpd -user list [ -a <auth file path> ]
+
+        -a Path to authentication file for 'native' authentication (defaults to /dev/metaftpd.auth)
+        -t password type, one of plaintext/md5/sha1/sha256/sha512 (defaults to md5)
+        Arg (1-n). Arguments in config-file format (Key=Value) can be set against a particular user
+
+Config File Entries
+	These all have a format Key=Value, except for the few that are just 'Key'
+
+	ChHome		Chroot into users home dir after login (this has no arguments)
+	ChShare=<path> Chroot into shared directory after logon
+	ChRoot=<path>	Chroot into <path> at start up and serve files from there.
+	AllowUsers=<comma seperated user list> Users allowed to log in
+	DenyUsers=<comma seperated user list> Users denied log in
+	Port=<port number> Port to listen on for command connections
+	DataConnectUpScript=<script path> Script to run (for changing iptables etc) when bringing up a data connection
+	DataConnectDownScript=<script path> Script to run (for changing iptables etc) when taking down a data connection
+	DataConnectionLowPort=<port number> low end of port range to use for data connectons
+	DataConnectionHighPort=<port number> high end of port range to use for data connections
+	AuthFile=<path> Path to file for 'Native' authentication
+	AuthMethods=<comma seperated list> List of authentication methods a subset of pam,passwd,shadow,native
+	ServerLogFile=<path> LogFile Path for top-level 'service' process or other thigns that don't concern users
+	LogFile=<path> LogFile Path for user processes. Can include the variables $(User) $(ClientIP) to create per-user or per-client logs.
+	Banner=<text> 'Banner' to send on initial control-connection
+	Idle=<timeout> Idle timeout for control connections, user overridable soft limit
+	MaxIdle=<timeout> Idle timeout for control connections, hard limit
+	Locks=<lock type> Set file lock types (see below) Can be "Advisory", "Mandatory", or "MandatoryWrite"
+	BindAddress=<ip address> Bind to specific network address/card.
+	PermittedCommands=<comma seperated list of ftp commands> Allowed FTP commands.
+	DefaultGroup=<Group name> Group to run server as.
+	MaxFileSize=<bytes> Maximum file size for upload
+
+
+
+ANONYMOUS LOGIN
+
+Anonymous login is possible using 'native' authentication, and creating a user with a special password type of 'null'. So:
+
+metaftpd -user add anonymous -t null -h /tmp
+
+
+CHROOT/CHSHARE/CHHOME 
+
+metaftpd supports three types of chroot operation.
+
+1) ChRoot mode. Chroot into a specified directory on program startup. This requires and /etc directory within the chroot containing whichever type of authentication files are being used (a native .auth file, a passwd file, and/or a shadow file) because in this mode the chroot is done before authentication. It is about the only ChRoot mode that will work when operating out of inetd.
+
+2) ChShare mode. Chroot into a specified 'share' directory on user login. If the user's home directory is under the share then chdir (but not chroot) into that. This allows users to logon, start off in their home directories, but be able to access each other's directories. So, for example, 'metaftpd -chshare /home' would result in chdiring to the users home directory (assuming their home directory is under '/home', otherwise they will just chdir to '/home', and then changing the 'root' to be 'home'. So the user would find themselves in their home directory, but be able to 'cd ..' up one level into '/home' and access other directories below home. However, they would not be able to 'cd ..' up any higher, for they are chrooted into '/home'.
+
+3) ChHome mode. This chroots the user into their home directory, so they can only see their own files. If the user has no home directory, then the chdir to the default directory (defaults to directory metaftpd was started in).
+
+
+Data Connections
+
+A recurring problem with FTP is that it uses data connections from/to random ports, and which can go in either direction depending on whether PORT or PASV type data-connections are used. This is a problem for firewalls. Metaftpd mitigates this by two methods:
+
+1) Port range. The 'DataConnectionLowPort' and 'DataConnectionHighPort' config file commands (and equivalent command-line arguments) allow you to specify a range of ports to be used for data connections. Traffic from these ports can then be allowed through firewalls, without having to 'open the whole firewall' to allow ftp.
+
+2) Connection Up/Down scripts. The DataConnectUpScript and DataConnectDownScript, and their equivalent command-line arguments, allow scripts to be run just before a data connection is made, and just after it is closed, allowing firewall rules to be changed on the fly.
+
+Scripts are passed arguments in this order: 
+
+SourceAddress, SourcePort, DestAddress, DestPort, ConnectType
+
+Where 'ConnectType' will be 'FromClient' for passive-mode data connections to a client, 'ToClient' for active-mode data connections to a client, 'ToServer' for proxy-mode connections to a server, and 'FromServer' for proxy-mode connections from a server.
+
+
+PROXY MODE:
+
+	There are 3 ways to use metaftpd as an ftp proxy. At login a user can enter a username in the form <user>@<host> and this tells metaftp to act as a proxy for <host>. There is a SITE PROXY <host> command that can be sent which also sets up a proxy connection to <host>. Finally metaftpd can act as a transparent proxy when started with the -proxy flag. When started with the -proxy flag it will treat all connections as proxy connections.
+
+The -proxy flag requires a linux system with transparent proxying available. This is set up via iptables. For instance, if you were running metaftpd with the -proxy flag on port 2121 then you'd need iptables rules of the form:
+
+	iptables -t nat -A PREROUTING -p tcp --dport ftp -j REDIRECT --to-ports 2121
+
+This would mean all ftp traffic would be redirected to your proxy at port 2121.
+
+If you still want to serve ftp on port 21 of your host it doesn't make much sense to pass it through the proxy. You can use:
+
+	iptables -t nat -A PREROUTING -p tcp --dport ftp ! -d <ip address> -j REDIRECT --to-ports 2121
+
+Where <ip address> is the address of the host. The -d flag means 'destination host' and the "!" operator turns it into 'not this destination host'. This method can be used to 'turn off' proxying for any ftp host by including a rule with their IP address listed.
+
+You will probably also need rules to tell your iptables firewall to accept connections on port 2121
+
+/usr/sbin/iptables -A INPUT -p tcp --dport 2121 -j ACCEPT
+/usr/sbin/iptables -A OUTPUT -p tcp --sport 2121 -j ACCEPT
+
+(You might need to add '-i eth0' or whatever is appropriate to specify that these connections should only be allowed on the internal network (so you're not offering proxy services to the internet!)
+
+
+LOCKS
+
+MetaFTPd supports a file-locking system to prevent two users writing to the same file simultaneously. There are three modes that this system can function in, 'Advisory', 'Mandatory' and 'MandatoryWrite'. In 'AdvisoryMode' the initial response to a RETR or a STOR will contain a warning if someone else is accessing the file (the ftp client should display this warning, though some (like webbrowsers) probably wont. In 'Mandatory' mode file accesses will fail with an error if someone else is working on the file at the same time. In 'MandatoryWrite' mode writes will fail, but reads will just get a warning.
+
+
+STRU T (TAR file structure)
+
+MetaFTPd supports two 'structure types' for file transfers, the standard 'F' type, and the 'T' or 'Tar' type. If the type is set to 'T' then transfers will be wrapped up in a tar archive. Directory listings (which are a type of transfer) are unaffected. This allows sending many files over a single data connection.
+
+This can be used even if a client doesn't support this option. Most clients support a 'quote' command which will send an arbitrary string to the server. Hence:
+
+	quote stru t
+
+can be used to switch to 'Tar' type. Then a command like:
+
+	get *.jpg jpegs.tar
+
+Will download a tar of all files matching *.jpg into 'jpegs.tar'. Similarly:
+
+	put jpegs.tar
+
+Will upload a tarball which will then be unpacked into the current directory.
+
+The command:
+
+	quote stru f
+
+Will return to 'file structure', in which case all files will simply be treated as single files, rather than tarballs.
+
+
+It is hoped that in future clients will support this command, allowing them to automatically tar/untar files and send or receive them over a single data-connection, thus speeding up the transfer process.
+
+	
+	
+
+
+SUPPORTED FTP COMMANDS
+
+NOOP
+USER
+PASS
+PORT
+XCWD
+CWD
+XCUP
+CDUP
+TYPE
+RETR
+STOR
+APPE
+REST	- Restart file transfer at so many bytes in.
+LIST
+NLST
+MLST
+MLSD
+MDTM	- Get file modify time
+XDEL
+DELE
+SYST
+STAT
+STRU  - Switch file structure (options are 'F' (standard file) and 'T' (tar file))
+QUIT
+XPWD
+PWD
+XMKD
+MKD
+XRMD
+RMD
+RMDA
+RNFR
+RNTO
+OPTS
+SIZE - Get File Size
+DSIZ
+PASV
+FEAT
+MODE - Mode S and Mode Z (gzip compresssion) supported
+ALLO
+AVBL - Get disk available space
+REIN
+CLNT - Register client program name/version
+MD5  - Get file MD5 checksum
+XMD5 - Get file MD5 checksum
+XCRC - Get file CRC checksum
+XSHA - Get file SHA1 checksum
+XSHA1 - Get file SHA1 checksum
+XSHA256 - Get file SHA256 checksum
+XSHA512 - Get file SHA512 checksum
+HASH - Get file hash (Default md5, setable to others with 'opts' command'
+SITE PROXY - Enter proxy mode and connect to host
+SITE SYMLINK - Create Symlink
+SITE CHMOD - Change file mode
+SITE UTIME - Change file modify time
+SITE UMASK - Get/Change umask
+SITE ZONE - Get site timezone
+SITE TIME - Get server's idea of time
+SITE IDLE - Get/Change server idle timeout (soft limit)
+
