@@ -2,6 +2,7 @@
 #include <sys/param.h>
 
 #define BASIC_COMMANDS "NOOP,USER,PASS,PORT,XCWD,CWD,XCUP,CDUP,TYPE,RETR,STOR,LIST,NLST,MLST,MLSD,XDEL,DELE,QUIT,XPWD,PWD,XMKD,MKD,XRMD,RMD,RNFR,RNTO,PASV,FEAT"
+char *Version="1.1.0";
 
 
 int DecodePORTStr(char *PortStr, char **Address, int *Port)
@@ -273,35 +274,39 @@ return(RetStr);
 }
 
 
-int FtpWriteBytes(TSession *Session,TDataConnection *DC, char *Buffer, int Len)
+int FtpCopyBytes(TSession *Session,TDataConnection *DC)
 {
-char *Tempstr=NULL;
-int result;
+char *Buffer=NULL, *Tempstr=NULL;
+int result, Len=BUFSIZ;
 
-	//Check this before writing, otherwise they'll be able to use 'REST' to add a little more
-	//to the file over and over
-	if ((DC->Flags & DC_STOR) && Settings.MaxFileSize > 0)
+	/*
+	if (Settings.MaxFileSize)
 	{
-    if (DC->BytesSent > Settings.MaxFileSize)
-    {
-      return(ERR_SIZE);
-    }
-  }
+		Len=Settings.MaxFileSize - DC->BytesSent;
+  	if (Len < 1) return(ERR_SIZE);
+	}
+	*/
+
+	if (Len > BUFSIZ) Len=BUFSIZ;
 
   if (Session->Flags & SESSION_ASCII_TRANSFERS)
   {
+		result=STREAMReadBytes(DC->Input,Buffer,BUFSIZ);
 		if (DC->Flags & DC_STOR) Tempstr=StripCR(Tempstr,Buffer,Len);
     else Tempstr=ExpandLF(Tempstr,Buffer,Len);
 		result=STREAMWriteBytes(DC->Output,Tempstr,StrLen(Tempstr));
   }
-  else result=STREAMWriteBytes(DC->Output,Buffer,Len);
+  else result=STREAMSendFile(DC->Input, DC->Output, Len);
 
 	DC->BytesSent+= (double) result;
 
+DestroyString(Buffer);
 DestroyString(Tempstr);
 
-return(ERR_OKAY);
+return(result);
 }
+
+
 
 
 char *GetCurrDirFullPath(char *RetStr)
@@ -316,4 +321,106 @@ char *Path=NULL, *Dir=NULL, *ptr;
 
 	DestroyString(Dir);
 	return(Path);
+}
+
+
+
+void DropCapabilities(int Level)
+{
+#ifdef USE_LINUX_CAPABILITIES
+
+//use portable 'libcap' interface if it's available
+#ifdef HAVE_LIBCAP
+#include <sys/capability.h>
+
+#define CAPSET_SIZE 10
+int CapSet[CAPSET_SIZE];
+int NumCapsSet=0, i;
+cap_t cap;
+
+
+//if we are a session then drop everything. Switch user should have happened,
+//but if it failed we drop everything. Yes, a root attacker can probably 
+//reclaim caps, but it at least makes them do some work
+
+if (Level < CAPS_LEVEL_SESSION) 
+{
+	CapSet[NumCapsSet]= CAP_CHOWN;
+	NumCapsSet++;
+
+	CapSet[NumCapsSet]= CAP_SETUID;
+	NumCapsSet++;
+
+	CapSet[NumCapsSet]= CAP_SETGID;
+	NumCapsSet++;
+
+	CapSet[NumCapsSet] = CAP_SYS_CHROOT;
+	NumCapsSet++;
+
+	CapSet[NumCapsSet] = CAP_FOWNER;
+	NumCapsSet++;
+
+	CapSet[NumCapsSet] = CAP_DAC_OVERRIDE;
+	NumCapsSet++;
+}
+
+if (Level==CAPS_LEVEL_STARTUP) 
+{
+	CapSet[NumCapsSet] = CAP_NET_BIND_SERVICE;
+	NumCapsSet++;
+}
+
+cap=cap_init();
+if (cap_set_flag(cap, CAP_EFFECTIVE, NumCapsSet, CapSet, CAP_SET) == -1)  ;
+if (cap_set_flag(cap, CAP_PERMITTED, NumCapsSet, CapSet, CAP_SET) == -1)  ;
+if (cap_set_flag(cap, CAP_INHERITABLE, NumCapsSet, CapSet, CAP_SET) == -1)  ;
+
+cap_set_proc(cap);
+
+#else 
+
+//if libcap is not available try linux-only interface
+
+#include <linux/capability.h>
+
+struct __user_cap_header_struct cap_hdr;
+cap_user_data_t cap_values;
+unsigned long CapVersions[]={ _LINUX_CAPABILITY_VERSION_3, _LINUX_CAPABILITY_VERSION_2, _LINUX_CAPABILITY_VERSION_1, 0};
+int val=0, i, result;
+
+//the CAP_ values are not bitmask flags, but instead indexes, so we have
+//to use shift to get the appropriate flag value
+if (Level < CAPS_LEVEL_SESSION)
+{
+ val |=(1 << CAP_CHOWN);
+ val |=(1 << CAP_SETUID);
+ val |=(1 << CAP_SETGID);
+ val |= (1 << CAP_SYS_CHROOT);
+}
+
+//only allow bind between startup and the next level call of
+//this function
+if (Level==CAPS_LEVEL_STARTUP) val |= (1 << CAP_NET_BIND_SERVICE);
+
+
+for (i=0; CapVersions[i] > 0; i++)
+{
+	cap_hdr.version=CapVersions[i];
+	cap_hdr.pid=0;
+
+	//Horrible cludgy interface. V1 uses 32bit, V2 uses 64 bit, and somehow spreads this over
+	//two __user_cap_data_struct items
+	if (CapVersions[i]==_LINUX_CAPABILITY_VERSION_1) cap_values=calloc(1,sizeof(struct __user_cap_data_struct));
+	else cap_values=calloc(2,sizeof(struct __user_cap_data_struct));
+
+	cap_values->effective=val;
+	cap_values->permitted=val;
+	cap_values->inheritable=val;
+	result=capset(&cap_hdr, cap_values);
+	free(cap_values);
+	if (result == 0) break;
+}
+
+#endif
+#endif
 }

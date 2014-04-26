@@ -5,9 +5,9 @@
 
 int GetIntendedDestination(int sock, TSession *Session);
 TDataConnection *OpenDataConnection(TSession *Session, int Flags);
-int NegotiateDataConnection(STREAM *ControlSock, TDataConnection *DC);
+int NegotiateDataConnection(STREAM *ControlSock, char *BindAddress, TDataConnection *DC);
 int CloseDataConnection(TSession *Session, TDataConnection *DataCon);
-int FTP_BindDataConnection(STREAM *PeerSock, TDataConnection *DC, char *MsgStr);
+int FTP_BindDataConnection(STREAM *PeerSock, char *BindAddress, TDataConnection *DC, char *MsgStr);
 TDataConnection *AddDataConnection(TSession *Session, int Type, char *Address, int Port);
 
 #endif

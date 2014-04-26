@@ -92,14 +92,13 @@ Chunk->BuffLen=len;
 Chunk->Buffer[len]='\0';
 ptr=Chunk->Buffer;
 
-
 if (Chunk->ChunkSize==0)
 {
 	//if chunksize == 0 then read the size of the next chunk
 
 	//if there's nothing in our buffer, and nothing being added, then
 	//we've already finished!
-	if (InLen==0) return(EOF);
+  if ((Chunk->BuffLen==0) && (InLen==0)) return(EOF);
 
 	vptr=ptr;
 	//skip past any leading '\r' or '\n'
@@ -107,6 +106,7 @@ if (Chunk->ChunkSize==0)
 	if (*vptr=='\n') vptr++;
 
 	ptr=strchr(vptr,'\n');
+
 
 	//sometimes people seem to miss off the final '\n', so if we get told there's no more data
 	//we should use a '\r' if we've got one
@@ -116,13 +116,15 @@ if (Chunk->ChunkSize==0)
 	  *ptr='\0';
 		ptr++;
 	}
-	else return(0);
+	else return(EOF);
 	Chunk->ChunkSize=strtol(vptr,NULL,16);
+
 
 	Chunk->BuffLen=Chunk->Buffer+len-ptr;
 
 
 	if (Chunk->BuffLen > 0)	memmove(Chunk->Buffer,ptr,Chunk->BuffLen);
+
 
 	//if we got chunksize of 0 then we're done, return EOF
 	if (Chunk->ChunkSize==0) return(EOF);

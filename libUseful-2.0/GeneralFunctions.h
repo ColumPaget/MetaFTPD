@@ -14,7 +14,6 @@ int WritePidFile(char *ProgName);
 int HexStrToBytes(char **Buffer, char *HexStr);
 char *BytesToHexStr(char *Buffer, char *Bytes, int len);
 
-void SwitchProgram(char *CommandLine);
 int SwitchUser(char *User);
 int SwitchGroup(char *Group);
 char *GetCurrUserHomeDir();
@@ -37,6 +36,8 @@ double ParseHumanReadableDataQty(char *Data, int Type);
 char *GetHumanReadableDataQty(double Size, int Type);
 
 void EraseString(char *Buff, char *Target);
+
+int GenerateRandomBytes(char *RetBuff, int ReqLen);
 
 
 #ifdef __cplusplus

@@ -30,7 +30,7 @@ return(FALSE);
 
 
 
-
+/*This is something else I'm working on, which is a kind of 'sudo' thing */
 STREAM *OpenInvokeSock()
 {
 int sock,i,result;
@@ -68,19 +68,15 @@ DestroyString(Tempstr);
 }
 
 
-int BindDataConnectionPort(int ControlSock, int Port, char **ResultAddress, int *ResultPort)
+
+int BindDataConnectionPort(int ControlSock, char *BindAddress, int Port, char **ResultAddress, int *ResultPort)
 {
 int fd=-1, salen, result;
 struct sockaddr_in sa, cs_sa;
 char *Tempstr=NULL;
 int Tempval;
 
-//Set Address to be the same as control sock, as it might not be INADDR_ANY
-salen=sizeof(struct sockaddr_in);
-getsockname(ControlSock, (struct sockaddr *) &cs_sa, &salen);
-
-fd=InitServerSock(IPtoStr(cs_sa.sin_addr.s_addr),Port);
-
+fd=InitServerSock(BindAddress,Port);
 if (result == -1)
 {
 close(fd);
@@ -96,7 +92,7 @@ return(fd);
 }
 
 
-int BindDataConnectionPortFromRange(int ControlSock, int LowPort, int HighPort, char **ResultAddress, int *ResultPort)
+int BindDataConnectionPortFromRange(int ControlSock, char *BindAddress, int LowPort, int HighPort, char **ResultAddress, int *ResultPort)
 {
 int fd=-1, i, val, Port;
 
@@ -106,14 +102,14 @@ int fd=-1, i, val, Port;
 	for (i=0; i < 3; i++)
 	{
 		Port=(rand() % val) + LowPort;
-		fd=BindDataConnectionPort(ControlSock, Port,ResultAddress,ResultPort);
+		fd=BindDataConnectionPort(ControlSock, BindAddress, Port, ResultAddress,ResultPort);
 		if (fd > -1) return(fd);
 	}
 
 	//else search through all
 	for (Port=LowPort; Port <= HighPort; Port++)
 	{
-		fd=BindDataConnectionPort(ControlSock, Port,ResultAddress,ResultPort);
+		fd=BindDataConnectionPort(ControlSock, BindAddress, Port, ResultAddress,ResultPort);
 		if (fd > -1) return(fd);
 	}
 
@@ -162,7 +158,7 @@ LogToFile(Settings.LogPath, "Incoming: %s:%d -> %s:%d %s",DataCon->SourceAddress
 HookArgs=FormatStr(HookArgs,"ConnectUp %s %d %s %d %s",  DataCon->SourceAddress,0,DataCon->DestAddress,DataCon->DestPort,Type);
 Tempstr=IPCRequest(Tempstr, Session, "RunHook", HookArgs);
 
-fd=TCPServerSockAccept(DataCon->ListenSock,&remoteip);
+fd=TCPServerSockAccept(DataCon->ListenSock,NULL);
 
 DestroyString(HookArgs);
 DestroyString(Tempstr);
@@ -209,12 +205,12 @@ return(result);
 
 
 //This sends PORT to another ftp server when we're in proxy mode
-int SendPORT(STREAM *ControlSock, TDataConnection *DataCon)
+int SendPORT(STREAM *ControlSock, char *BindAddress, TDataConnection *DataCon)
 {
 char *Tempstr=NULL;
 int result=FALSE;
 
-if (FTP_BindDataConnection(ControlSock, DataCon, "PORT"))
+if (FTP_BindDataConnection(ControlSock, BindAddress, DataCon, "PORT $(DestAddressCSV),$(DestPortHi),$(DestPortLow)"))
 {
   Tempstr=STREAMReadLine(Tempstr,ControlSock);
   LogToFile(Settings.LogPath, "PROXY: %s",Tempstr);
@@ -305,14 +301,14 @@ return(DataCon);
 }
 
 
-int NegotiateDataConnection(STREAM *ControlSock, TDataConnection *DC)
+int NegotiateDataConnection(STREAM *ControlSock, char *BindAddress, TDataConnection *DC)
 {
 int result=FALSE;
 
 if (! (Settings.Flags & FLAG_NOPASV)) result=SendPASV(ControlSock, DC);
 if (! result)
 {
-   result=SendPORT(ControlSock, DC);
+   result=SendPORT(ControlSock, BindAddress, DC);
 }
 return(result);
 }
@@ -387,14 +383,15 @@ return(DC);
 
 
 //Sets things up for an INCOMING connection
-int FTP_BindDataConnection(STREAM *PeerSock, TDataConnection *DC, char *MsgStr)
+int FTP_BindDataConnection(STREAM *PeerSock, char *BindAddress, TDataConnection *DC, char *MsgStr)
 {
-int porthi, portlow, salen;
+int val;
 struct sockaddr_in sa;
 char *Buffer=NULL, *Tempstr=NULL, *ptr;
+ListNode *Vars;
 
-	if (Settings.DataConnectionLowPort==0) DC->ListenSock=BindDataConnectionPort(PeerSock->in_fd, 0,&DC->DestAddress,&DC->DestPort); //pick one at random
-	else DC->ListenSock=BindDataConnectionPortFromRange(PeerSock->in_fd,Settings.DataConnectionLowPort,Settings.DataConnectionHighPort,&DC->DestAddress,&DC->DestPort);
+	if (Settings.DataConnectionLowPort==0) DC->ListenSock=BindDataConnectionPort(PeerSock->in_fd, BindAddress, 0,&DC->DestAddress,&DC->DestPort); //pick one at random
+	else DC->ListenSock=BindDataConnectionPortFromRange(PeerSock->in_fd,BindAddress, Settings.DataConnectionLowPort,Settings.DataConnectionHighPort,&DC->DestAddress,&DC->DestPort);
 	
 	if (DC->ListenSock==-1) 
 	{
@@ -402,28 +399,41 @@ char *Buffer=NULL, *Tempstr=NULL, *ptr;
 		return(FALSE);
 	}
 
+	 Vars=ListCreate();
+
    /* now we have to send a message to the remote server to tell it to connect*/
    /* back to us on the specified port */
-   porthi=(DC->DestPort & 0xFF00) >>8;
-   portlow=DC->DestPort & 0x00FF;
-
-	 salen=sizeof(struct sockaddr_in);
-   getpeername(PeerSock->in_fd,(struct sockaddr *) &sa, &salen);
+	 Tempstr=FormatStr(Tempstr,"%d",DC->DestPort);
+	 SetVar(Vars,"DestPort",Tempstr);
+			
+   val=(DC->DestPort & 0xFF00) >>8;
+	 Tempstr=FormatStr(Tempstr,"%d",val);
+	 SetVar(Vars,"DestPortHi",Tempstr);
+	
+   val=DC->DestPort & 0x00FF;
+	 Tempstr=FormatStr(Tempstr,"%d",val);
+	 SetVar(Vars,"DestPortLow",Tempstr);
+	
+	 val=sizeof(struct sockaddr_in);
+   getpeername(PeerSock->in_fd,(struct sockaddr *) &sa, &val);
    DC->SourceAddress=CopyStr(DC->SourceAddress,(char *) inet_ntoa(sa.sin_addr));
    DC->SourcePort=ntohs(sa.sin_port);
 
 	/* in FTP we have commas in IP addresses rather than dots (!??!!) */
 	Tempstr=CopyStr(Tempstr,DC->DestAddress);
 	strrep(Tempstr,'.',',');
+	SetVar(Vars,"DestAddressCSV",Tempstr);
 
-	if (strncmp(MsgStr,"227",3)==0) Buffer=FormatStr(Buffer,"%s (%s,%d,%d)",MsgStr,Tempstr,porthi,portlow);
-	else Buffer=FormatStr(Buffer,"%s %s,%d,%d",MsgStr,Tempstr,porthi,portlow);
+	Buffer=SubstituteVarsInString(Buffer,MsgStr,Vars,0);
+
 	SendLoggedLine(Buffer,PeerSock);
 	DC->Flags=DC_INCOMING;
 
+	ListDestroy(Vars,DestroyString);
 
-DestroyString(Tempstr);
-DestroyString(Buffer);
+	DestroyString(Tempstr);
+	DestroyString(Buffer);
+
 return(TRUE);
 }
 

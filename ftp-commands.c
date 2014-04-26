@@ -11,7 +11,7 @@
 char *HashTypes[]={"CRC32","MD5","SHA-1","SHA-256","SHA-512",NULL};
 typedef enum {HASH_CRC, HASH_MD5, HASH_SHA1, HASH_SHA256, HASH_SHA512, HASH_FTPCRC, HASH_FTPMD5};
 
-char *FtpCommandStrings[]={"NOOP","DENIED","USER","PASS","PORT","XCWD","CWD","XCUP","CDUP","TYPE","RETR","APPE","STOR","REST","LIST","NLST","MLST","MLSD","MDTM","XDEL","DELE","SYST","SITE","STAT","STRU","QUIT","XPWD","PWD","XMKD","MKD","XRMD","RMD","RMDA","RNFR","RNTO","OPTS","SIZE","DSIZ","PASV","FEAT","MODE","ALLO","AVBL","REIN","CLNT","MD5","XMD5","XCRC","XSHA","XSHA1","XSHA256","XSHA512","HASH",NULL};
+char *FtpCommandStrings[]={"NOOP","DENIED","USER","PASS","PORT","XCWD","CWD","XCUP","CDUP","TYPE","RETR","APPE","STOR","REST","LIST","NLST","MLST","MLSD","MDTM","XDEL","DELE","SYST","SITE","STAT","STRU","QUIT","XPWD","PWD","XMKD","MKD","XRMD","RMD","RMDA","RNFR","RNTO","OPTS","SIZE","DSIZ","PASV","EPSV","FEAT","MODE","ALLO","AVBL","REIN","CLNT","MD5","XMD5","XCRC","XSHA","XSHA1","XSHA256","XSHA512","HASH",NULL};
 
 void SendLoggedLine(char *Data, STREAM *S)
 {
@@ -113,7 +113,7 @@ int RetVal=FALSE, result;
 char *ptr;
 
 
-     if (
+   if (
 			(Settings.Flags & FLAG_CHSHARE) ||
 			(Settings.Flags & FLAG_CHHOME)
 		)
@@ -199,10 +199,7 @@ char *Token=NULL, *ptr;
 			LogToFile(Settings.ServerLogPath,"User [%s@%s] Logged on. Home Dir=%s. Continuing logging in %s",Session->User,Session->ClientIP,Session->HomeDir,Settings.LogPath);
 		}
 
-		if (geteuid()==0)
-		{
-			 RetVal=SetupUserEnvironment(Session);
-		}
+		if (geteuid()==0) RetVal=SetupUserEnvironment(Session);
 		else
 		{
 			if (StrLen(Session->HomeDir)) 
@@ -342,6 +339,7 @@ char *Tempstr=NULL, *HookArgs=NULL;
   Session->Passwd=CopyStr(Session->Passwd,Passwd);
   if (LogonUser(Session)) 
   {
+		DropCapabilities(CAPS_LEVEL_SESSION);
 		SetVar(Session->Vars,"User",Session->User);
 		SetVar(Session->Vars,"RealUser",Session->RealUser);
 		SetVar(Session->Vars,"RealUser",Session->RealUser);
@@ -663,9 +661,17 @@ void HandlePASV(TSession *Session)
 TDataConnection *DC;
 
 DC=AddDataConnection(Session, DC_INCOMING, "", 0);
-FTP_BindDataConnection(Session->ClientSock, DC, "227 Entering Passive Mode");
+FTP_BindDataConnection(Session->ClientSock, Session->LocalIP, DC, "227 Entering Passive Mode ($(DestAddressCSV),$(DestPortHi),$(DestPortLow))");
 
-//OpenDataConnection(Session,Session->ClientSock,NULL, Session->DataConnection,"");
+}
+
+
+void HandleEPSV(TSession *Session)
+{
+TDataConnection *DC;
+
+DC=AddDataConnection(Session, DC_INCOMING, "", 0);
+FTP_BindDataConnection(Session->ClientSock, Session->LocalIP, DC, "229 Entering Extended Passive Mode (|||$(DestPort)|)");
 }
 
 
@@ -1035,7 +1041,8 @@ if (DC)
 	DC->FileName=CopyStr(DC->FileName,Path);
 	DC->Flags |= DC_RETR;
 	Session->DataConnection=NULL;
-	ListAddItem(Session->FileTransfers,DC);
+	STREAMSetItem(InFile,"DataCon",DC);
+	ListAddItem(Session->Connections,InFile);
 }
 
 
@@ -1119,10 +1126,11 @@ int val=0;
 		DC->Input=DC->Sock;
 		DC->Output=OutFile;
 		Session->DataConnection=NULL;
-		ListAddItem(Session->FileTransfers,DC);
+		STREAMSetItem(DC->Input,"DataCon",DC->Input);
+		ListAddItem(Session->Connections,DC->Input);
   	DC->FileName=CopyStr(DC->FileName,Path);
   	DC->Flags |= DC_STOR;
-		DC->BytesSent=STREAMTell(OutFile);
+		DC->BytesSent=(double) STREAMTell(OutFile);
   }
 	else SendLoggedLine("500 Cannot build Data Connection", Session->ClientSock);
 
@@ -1546,10 +1554,9 @@ if (
 	)
    )
 {
-
-STREAMWriteLine("530 ERROR: Please log in first\r\n",Session->ClientSock); 
-LogToFile(Settings.ServerLogPath,"530 ERROR: Please log in first");
-return;
+	STREAMWriteLine("530 ERROR: Please log in first\r\n",Session->ClientSock); 
+	LogToFile(Settings.ServerLogPath,"530 ERROR: Please log in first");
+	return;
 }
 	
 //PASS gets logged in 'LogonUser'
@@ -1572,6 +1579,7 @@ case CMD_USER:
 case CMD_PASS: HandlePASS(Session, Arg); break;
 case CMD_PORT: HandlePORT(Session, Arg); break;
 case CMD_PASV: HandlePASV(Session); break;
+case CMD_EPSV: HandleEPSV(Session); break;
 case CMD_SYST: HandleSYST(Session); break;
 case CMD_SITE: HandleSITE(Session, Arg); break;
 case CMD_FEAT: HandleFEAT(Session, Arg); break;

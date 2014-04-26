@@ -1,36 +1,36 @@
 #include "includes.h"
 #include "base64.h"
+#include "Hash.h"
+#include <sys/utsname.h>
 
-int WritePidFile(char *ProgName) 
-{ 
-char *Tempstr=NULL; 
-STREAM *S;
-int result=FALSE;
- 
+int WritePidFile(char *ProgName)
+{
+char *Tempstr=NULL;
+int result=FALSE, fd;
+
 
 if (*ProgName=='/') Tempstr=CopyStr(Tempstr,ProgName);
 else Tempstr=FormatStr(Tempstr,"/var/run/%s.pid",ProgName);
 
-S=STREAMOpenFile(Tempstr,O_CREAT | O_WRONLY); 
-if (S)
+fd=open(Tempstr,O_CREAT | O_TRUNC | O_WRONLY);
+if (fd > -1)
 {
-	fchmod(S->in_fd,0644); 
-	if (flock(S->in_fd,LOCK_EX|LOCK_NB) !=0) 
-	{ 
-		STREAMClose(S); 
-		exit(1); 
-	}
-	result=TRUE; 
-	Tempstr=FormatStr(Tempstr,"%d\n",getpid()); 
-	STREAMWriteLine(Tempstr,S); 
-	STREAMFlush(S); 
-} 
+  fchmod(fd,0644);
+  if (flock(fd,LOCK_EX|LOCK_NB) !=0)
+  {
+    close(fd);
+    exit(1);
+  }
+  result=TRUE;
+  Tempstr=FormatStr(Tempstr,"%d\n",getpid());
+  write(fd,Tempstr,StrLen(Tempstr));
+}
 
-//Don't close 'S'!
+//Don't close 'fd'!
 
 DestroyString(Tempstr);
 
-return(result);
+return(fd);
 } 
 
 
@@ -81,26 +81,6 @@ return(len / 2);
 }
 
 
-void SwitchProgram(char *CommandLine)
-{
-char **argv, *ptr;
-char *Token=NULL;
-int i;
-
-argv=(char **) calloc(101,sizeof(char *));
-ptr=CommandLine;
-for (i=0; i < 100; i++)
-{
-ptr=GetToken(ptr,"\\S",&Token,GETTOKEN_QUOTES);
-if (! ptr) break;
-argv[i]=CopyStr(argv[i],Token);
-}
-
-/* we are the child so we continue */
-execv(argv[0],argv);
-//no point trying to free stuff here, we will no longer
-//be the main program
-}
 
 
 #include <pwd.h>
@@ -301,18 +281,18 @@ GIG=GIGIBYTE;
       kMGT='T';
     }
     else*/
-	 if (val > (GIG))
+	 if (val >= (GIG))
     {
       val=val / GIG;
       kMGT='G';
     }
-    else if (val > (MEG))
+    else if (val >= (MEG))
     {
       val=val / MEG;
       kMGT='M';
 
     }
-    else if (val > (KAY))
+    else if (val >= (KAY))
     {
       val=val /  KAY;
       kMGT='k';
@@ -336,4 +316,43 @@ memset(ptr,' ',len);
 ptr=strstr(ptr,Target);
 }
 
+}
+
+
+
+int GenerateRandomBytes(char *RetBuff, int ReqLen)
+{
+struct utsname uts;
+int i, len;
+clock_t ClocksStart, ClocksEnd;
+struct timeval tv1, tv2;
+char *Tempstr=NULL, *Digest=NULL;
+
+ClocksStart=clock();
+gettimeofday(&tv1,NULL);
+//how many clock cycles used here will depend on overall
+//machine activity/performance/number of running processes
+for (i=0; i < 100; i++) sleep(0);
+uname(&uts);
+ClocksEnd=clock();
+gettimeofday(&tv2,NULL);
+
+
+Tempstr=FormatStr(Tempstr,"%lu:%lu:%lu:%lu:%lu:%lu\n",getpid(),getuid(),ClocksStart,ClocksEnd,tv1.tv_usec,tv2.tv_usec);
+//This stuff should be unique to a machine
+Tempstr=CatStr(Tempstr,uts.sysname);
+Tempstr=CatStr(Tempstr, uts.nodename);
+Tempstr=CatStr(Tempstr, uts.machine);
+Tempstr=CatStr(Tempstr, uts.release);
+Tempstr=CatStr(Tempstr, uts.version);
+
+
+len=HashBytes(&Digest, "sha256", Tempstr, StrLen(Tempstr), 0);
+if (len > ReqLen) len=ReqLen;
+memcpy(RetBuff,Digest,len);
+
+DestroyString(Tempstr);
+DestroyString(Digest);
+
+return(len);
 }

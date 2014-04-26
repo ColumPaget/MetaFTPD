@@ -141,10 +141,12 @@ return(DataCon);
 
 
 /* Proxy functions */
+
+
 void ProxyHandlePASV(TSession *Session)
 {
 Session->ProxyDataConnection=DataConnectionCreate();
-if (NegotiateDataConnection(Session->ProxySock, Session->ProxyDataConnection))
+if (NegotiateDataConnection(Session->ProxySock, "", Session->ProxyDataConnection))
 {
 	LogToFile(Settings.LogPath, "NEG DC %s",Session->ProxyDataConnection->SourceAddress);
 	HandlePASV(Session);
@@ -163,7 +165,7 @@ int Port=0;
   AddDataConnection(Session, DC_OUTGOING, Address, Port);
   Session->ProxyDataConnection=DataConnectionCreate();
 
-if (NegotiateDataConnection(Session->ProxySock, Session->ProxyDataConnection))
+if (NegotiateDataConnection(Session->ProxySock, Session->LocalIP, Session->ProxyDataConnection))
 {
   Session->ProxyDataConnection->Flags |= DC_PROXY;
   SendLoggedLine("200 OK", Session->ClientSock);

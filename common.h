@@ -52,6 +52,11 @@
 #define ERR_FILE 1
 #define ERR_SIZE 2
 
+#define CAPS_LEVEL_STARTUP  1
+#define CAPS_LEVEL_NETBOUND 2
+#define CAPS_LEVEL_SESSION  3
+
+
 typedef struct
 {
 int Flags;
@@ -82,7 +87,7 @@ STREAM *ProxySock;
 STREAM *IPCCon;
 char *DataConnectionIP;
 TDataConnection *DataConnection, *ProxyDataConnection;
-ListNode *FileTransfers;
+ListNode *Connections;
 ListNode *Vars;
 time_t LastActivity;
 } TSession;
@@ -130,15 +135,17 @@ int MaxIdle;
 double MaxFileSize;
 } TSettings;
 
-typedef enum {CMD_NOOP,CMD_DENIED,CMD_USER, CMD_PASS,CMD_PORT,CMD_XCWD,CMD_CWD,CMD_XCUP,CMD_CDUP,CMD_TYPE,CMD_RETR,CMD_APPE,CMD_STOR,CMD_REST,CMD_LIST,CMD_NLST,CMD_MLST,CMD_MLSD,CMD_MDTM,CMD_XDEL,CMD_DELE,CMD_SYST,CMD_SITE,CMD_STAT,CMD_STRU,CMD_QUIT,CMD_XPWD,CMD_PWD,CMD_XMKD,CMD_MKD,CMD_XRMD,CMD_RMD, CMD_RMDA, CMD_RNFR,CMD_RNTO, CMD_OPTS, CMD_SIZE, CMD_DSIZ, CMD_PASV, CMD_FEAT, CMD_MODE, CMD_ALLO, CMD_AVBL, CMD_REIN, CMD_CLNT, CMD_MD5, CMD_XMD5, CMD_XCRC, CMD_XSHA, CMD_XSHA1, CMD_XSHA256, CMD_XSHA512, CMD_HASH} TFtpCommands;
+typedef enum {CMD_NOOP,CMD_DENIED,CMD_USER, CMD_PASS,CMD_PORT,CMD_XCWD,CMD_CWD,CMD_XCUP,CMD_CDUP,CMD_TYPE,CMD_RETR,CMD_APPE,CMD_STOR,CMD_REST,CMD_LIST,CMD_NLST,CMD_MLST,CMD_MLSD,CMD_MDTM,CMD_XDEL,CMD_DELE,CMD_SYST,CMD_SITE,CMD_STAT,CMD_STRU,CMD_QUIT,CMD_XPWD,CMD_PWD,CMD_XMKD,CMD_MKD,CMD_XRMD,CMD_RMD, CMD_RMDA, CMD_RNFR,CMD_RNTO, CMD_OPTS, CMD_SIZE, CMD_DSIZ, CMD_PASV, CMD_EPSV, CMD_FEAT, CMD_MODE, CMD_ALLO, CMD_AVBL, CMD_REIN, CMD_CLNT, CMD_MD5, CMD_XMD5, CMD_XCRC, CMD_XSHA, CMD_XSHA1, CMD_XSHA256, CMD_XSHA512, CMD_HASH} TFtpCommands;
 
-extern char *CmdLine, *ProgName;
+extern char *CmdLine, *ProgName, *Version;
 extern TSettings Settings;
 
 int DecodePORTStr(char *PortStr, char **Address, int *Port);
 void ParseConfigItem(char *ConfigLine);
 char *GetDefaultUser();
-int FtpWriteBytes(TSession *Session,TDataConnection *DC, char *Buffer, int Len);
+int FtpCopyBytes(TSession *Session,TDataConnection *DC);
 char *GetCurrDirFullPath(char *RetStr);
+void DropCapabilities(int Level);
+
 
 #endif

@@ -9,7 +9,7 @@ bindir=@bindir@
 sysconfdir=@sysconfdir@
 FLAGS=$(CFLAGS) @DEFS@ 
 
-OBJ=Authenticate.o ftp-commands.o proxy.o common.o connections.o IPC.o libUseful-2.0/libUseful-2.0.a
+OBJ=Authenticate.o Settings.o ftp-commands.o proxy.o common.o connections.o IPC.o libUseful-2.0/libUseful-2.0.a
 
 all: $(OBJ) main.c
 	gcc -g $(FLAGS) $(LIBS) -o metaftpd main.c $(OBJ)
@@ -35,6 +35,10 @@ IPC.o: IPC.c IPC.h
 
 common.o: common.c common.h 
 	gcc $(FLAGS) -c common.c
+
+Settings.o: Settings.c Settings.h 
+	gcc $(FLAGS) -c Settings.c
+
 
 clean:
 	rm -f *.o metaftpd */*.o */*.so */*.a

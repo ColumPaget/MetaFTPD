@@ -71,11 +71,9 @@ if (p_HookConfig)
 	sptr=GetToken(sptr,",",&ScriptUser,GETTOKEN_QUOTES);
 	sptr=GetToken(sptr,",",&ScriptDir,GETTOKEN_QUOTES);
 
-	LibUsefulSetValue("FORK:Dir",ScriptDir);
-  LibUsefulSetValue("FORK:User",ScriptUser);
 	Tempstr=MCopyStr(Tempstr,ScriptPath, " ", ptr, NULL);
 	//RunStr=MakeShellSafeString(RunStr, Tempstr, 0);
-	pid=Spawn(Tempstr);
+	pid=Spawn(Tempstr, ScriptUser, "", ScriptDir);
 
 	if (pid > -1)  
 	{
@@ -83,9 +81,6 @@ if (p_HookConfig)
 		if ((p_HookConfig==Settings.ConnectUpHook) || (p_HookConfig==Settings.ConnectDownHook)) waitpid(pid,NULL,0);
 	}
 	else LogToFile(Settings.ServerLogPath,"ERROR: Hook Script: %s Failed to run",Tempstr);
-
-	LibUsefulSetValue("FORK:Dir","");
-  LibUsefulSetValue("FORK:User","");
 }
 
 DestroyString(Tempstr);
