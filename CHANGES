@@ -1,3 +1,6 @@
+version 1.1.0
+	IPv6 support (only passive mode). Use of the 'sendfile' syscall for better performance. Linux capabilities support: MetaFTPD drops 'root' capabilities that it doesn't need.
+
 version 1.0.1
 	More bugfixes (mostly memory leaks). '--version' now displays correct version. Idle timeouts now work.
 

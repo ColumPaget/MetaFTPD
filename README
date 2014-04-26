@@ -24,8 +24,9 @@ Command Line Arguments:
 -chshare				ChShare, chroot into a shared directory after logon.
 -port           Port to listen on (default 21)
 -p              Port to listen on (default 21)
+-4              Only use IPv4.
 -nodemon        Don't background
--i              Use out of inetd, not as standalone server (implies -nodemon)
+-I              Use out of inetd, not as standalone server (implies -nodemon)
 -inetd          Use out of inetd, not as standalone server (implies -nodemon)
 -f              path to config file
 -a              path to 'native' authentication file
@@ -41,7 +42,8 @@ Command Line Arguments:
 -mlocks         Mandatory Locks
 -alocks         Advisory Locks
 -malocks        Mandatory write, Advisory read Locks
--bindaddress    Bind server to address
+-i              Bind server to address/interface
+-bindaddress    Bind server to address/interface
 -logfile        Logfile path, can include the variables $(ClientIP) and $(User)
 -dcus           Data Connnection Up Script
 -dcds           Data Connection DownScript
