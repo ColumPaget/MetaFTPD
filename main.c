@@ -1,10 +1,11 @@
 #include "common.h"
 #include "Authenticate.h"
 #include "Settings.h"
+#include "IPC.h"
+#include "connections.h"
 #include <sys/param.h>
 
 
-TSettings Settings;
 unsigned int RetrieveStartPos;
 time_t Now;
 
@@ -34,15 +35,6 @@ else
 
 
 
-TDataConnection *DataConnectionCreate()
-{
-TDataConnection *Con;
-
-Con=(TDataConnection *) calloc(1,sizeof(TDataConnection));
-Con->ListenSock=-1;
-
-return(Con);
-}
 
 int SessionReadFTPCommand(TSession *Session)
 {
@@ -189,6 +181,46 @@ DestroyString(Tempstr);
 
 
 
+char *BuildConnectBanner(char *RetStr, TSession *Session)
+{
+char *Token=NULL, *HashPassTypes=NULL, *ptr;
+
+	RetStr=CopyStr(RetStr, "");
+	ptr=GetToken(Settings.AuthMethods, ",",&Token,NULL);
+	while (ptr)
+	{
+	if (strncmp(Token,"hp-",3)==0) HashPassTypes=MCatStr(HashPassTypes,Token,",",NULL);
+	ptr=GetToken(ptr, ",",&Token,NULL);
+	}
+
+	if (StrLen(HashPassTypes) || StrLen(Settings.ConnectBanner))
+	{
+		if (StrLen(Settings.ConnectBanner)) 
+		{
+			ptr=GetToken(Settings.ConnectBanner,"\n",&Token,0);
+			while (ptr)
+			{
+			RetStr=MCatStr(RetStr,"220-",Token,"\r\n",NULL);
+			ptr=GetToken(ptr,"\n",&Token,0);
+			}
+		}
+		if (StrLen(HashPassTypes)) 
+		{
+			GenerateRandomBytes(&Session->Challenge, 20, ENCODE_BASE64);
+			RetStr=MCatStr(RetStr,"220-PasswdTypes: ",HashPassTypes," ",Session->Challenge, "\r\n", NULL);
+		}
+	}
+
+	RetStr=CatStr(RetStr,"220 OK\r\n");
+
+	DestroyString(Token);
+	DestroyString(HashPassTypes);
+
+	return(RetStr);
+}
+	
+
+
 void HandleSession(TSessionArg *SA)
 {
 TSession *Session;
@@ -206,7 +238,7 @@ Session->Vars=ListCreate();
 Session->Connections=ListCreate();
 SetVar(Session->Vars,"User","unknown");
 SetVar(Session->Vars,"RealUser","root");
-
+Session->MLSFactsList=CopyStr(Session->MLSFactsList, "type;size;modify");
 
 //MODE_FTP_X and SESSION_FTP_X are setup to have the same values, so this is
 //not as alarming as it looks
@@ -214,13 +246,13 @@ Session->Flags=Settings.Flags & (MODE_FTP_SERVER | MODE_FTP_PROXY);
 GetSockDetails(SA->client_infd,&Session->LocalIP,&val,&Session->ClientIP,&val);
 SetVar(Session->Vars,"ClientIP",Session->ClientIP);
 
-val=LOGFILE_LOGPID | LOGFILE_LOGUSER;
+val=LOGFILE_LOGPID | LOGFILE_LOGUSER | LOGFILE_TIMESTAMP | LOGFILE_MILLISECS;
 if (Settings.Flags & FLAG_SYSLOG) 
 {
 	val |=LOGFILE_SYSLOG;
 	openlog("ftpd",LOG_PID,LOG_DAEMON);
 }
-LogFileSetValues(Settings.ServerLogPath, val, 100000000, 0);
+LogFileFindSetValues(Settings.ServerLogPath, val, 100000000, 0, 0);
 LogToFile(Settings.ServerLogPath,"New Connection from %s",Session->ClientIP);
 
 Session->DataConnection=DataConnectionCreate();
@@ -228,12 +260,12 @@ Session->DataConnection=DataConnectionCreate();
 
 Session->ClientSock=STREAMFromDualFD(SA->client_infd, SA->client_outfd);
 ListAddItem(Session->Connections,Session->ClientSock);
-STREAMSetFlushType(Session->ClientSock,FLUSH_LINE,0);
+STREAMSetFlushType(Session->ClientSock,FLUSH_LINE,0,0);
 
 if (! (Settings.Flags & MODE_INETD)) 
 {
 	Session->IPCCon=STREAMFromDualFD(0,1);
-	STREAMSetFlushType(Session->IPCCon,FLUSH_LINE,0);
+	STREAMSetFlushType(Session->IPCCon,FLUSH_LINE,0,0);
 }
 
 GetIntendedDestination(SA->client_infd, Session);
@@ -250,8 +282,8 @@ if (StrLen(Session->DestIP))
 }
 else 
 {
-	if (StrLen(Settings.ConnectBanner)) Tempstr=FormatStr(Tempstr,"220 OK %s\r\n",Settings.ConnectBanner);
-	else Tempstr=CopyStr(Tempstr,"220 OK\r\n");
+	Tempstr=BuildConnectBanner(Tempstr, Session);
+	
 	STREAMWriteLine(Tempstr,Session->ClientSock);
 	STREAMFlush(Session->ClientSock);
 }
@@ -432,7 +464,7 @@ if (Settings.Flags & MODE_INETD)
 else
 {
 	if (Settings.Flags & FLAG_DEMON) demonize();
-	ListenSock=InitServerSock(Settings.BindAddress,Settings.Port);
+	ListenSock=InitServerSock(SOCK_STREAM,Settings.BindAddress,Settings.Port);
 	if (ListenSock==-1) 
 	{
 			printf("Failed to bind port!\n");

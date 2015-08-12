@@ -1,5 +1,8 @@
 #include "proxy.h"
 #include "ftp-commands.h"
+#include "connections.h"
+#include "Settings.h"
+#include "IPC.h"
 
 
 int AsciiSendFileData(STREAM *InStream,STREAM * OutStream, int Direction)
@@ -216,7 +219,7 @@ Tempstr=MCopyStr(Tempstr,Command," ",Path,"\r\n",NULL);
 STREAMWriteLine(Tempstr,Session->ProxySock); 
 STREAMFlush(Session->ProxySock);
 LogToFile(Settings.LogPath,"PROXY SEND: %s ",Tempstr);
-if (! CopyToSock(Session->ProxySock, Session->ClientSock)) return(NULL);
+if (! CopyToSock(Session->ProxySock, Session->ClientSock)) return(FALSE);
 
 
 if (ProxyOpenDataConnection(Session,0)) 
@@ -258,6 +261,8 @@ ListAddItem(Session->FileTransfers,DataCon);
 
 
 DestroyString(Tempstr);
+
+return(TRUE);
 }
 
 

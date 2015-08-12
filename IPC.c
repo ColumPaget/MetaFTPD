@@ -1,5 +1,5 @@
 #include "IPC.h"
-
+#include "Settings.h"
 
 ListNode *IPCCache=NULL;
 

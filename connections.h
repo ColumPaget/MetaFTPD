@@ -3,6 +3,9 @@
 
 #include "common.h"
 
+
+
+TDataConnection *DataConnectionCreate();
 int GetIntendedDestination(int sock, TSession *Session);
 TDataConnection *OpenDataConnection(TSession *Session, int Flags);
 int NegotiateDataConnection(STREAM *ControlSock, char *BindAddress, TDataConnection *DC);

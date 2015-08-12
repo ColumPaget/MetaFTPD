@@ -1,5 +1,6 @@
 #include "common.h"
 #include "Authenticate.h"
+#include "Settings.h"
 #include "IPC.h"
 #include "connections.h"
 #include <sys/param.h>
@@ -8,10 +9,10 @@
 #define READ_LOCK 0
 #define WRITE_LOCK 1
 
-char *HashTypes[]={"CRC32","MD5","SHA-1","SHA-256","SHA-512",NULL};
-typedef enum {HASH_CRC, HASH_MD5, HASH_SHA1, HASH_SHA256, HASH_SHA512, HASH_FTPCRC, HASH_FTPMD5};
+const char *HashNames[]={"CRC32","MD5","SHA-1","SHA-256","SHA-512",NULL};
+typedef enum {HASH_CRC, HASH_MD5, HASH_SHA1, HASH_SHA256, HASH_SHA512, HASH_FTPCRC, HASH_FTPMD5} EHashNames;
 
-char *FtpCommandStrings[]={"NOOP","DENIED","USER","PASS","PORT","XCWD","CWD","XCUP","CDUP","TYPE","RETR","APPE","STOR","REST","LIST","NLST","MLST","MLSD","MDTM","XDEL","DELE","SYST","SITE","STAT","STRU","QUIT","XPWD","PWD","XMKD","MKD","XRMD","RMD","RMDA","RNFR","RNTO","OPTS","SIZE","DSIZ","PASV","EPSV","FEAT","MODE","ALLO","AVBL","REIN","CLNT","MD5","XMD5","XCRC","XSHA","XSHA1","XSHA256","XSHA512","HASH",NULL};
+const char *FtpCommandStrings[]={"NOOP","DENIED","USER","PASS","PORT","XCWD","CWD","XCUP","CDUP","TYPE","RETR","APPE","STOR","REST","LIST","NLST","MLST","MLSD","MDTM","XDEL","DELE","SYST","SITE","STAT","STRU","QUIT","XPWD","PWD","XMKD","MKD","XRMD","RMD","RMDA","RNFR","RNTO","OPTS","SIZE","DSIZ","PASV","EPSV","FEAT","MODE","ALLO","AVBL","REIN","CLNT","MD5","XMD5","XCRC","XSHA","XSHA1","XSHA256","XSHA512","HASH",NULL};
 
 void SendLoggedLine(char *Data, STREAM *S)
 {
@@ -146,7 +147,7 @@ char *ptr;
 				setgid(Settings.DefaultGroupID);
 		}
 
-    if (setreuid(Session->RealUserUID,Session->RealUserUID)==0)
+    if (setresuid(Session->RealUserUID,Session->RealUserUID,Session->RealUserUID)==0)
 		{
 				RetVal=TRUE;
 		}
@@ -170,7 +171,7 @@ char *Token=NULL, *ptr;
 	SetVar(Session->Vars,"User",Session->User);
 	SetVar(Session->Vars,"RealUser",Session->RealUser);
 
-	val=LOGFILE_LOGPID | LOGFILE_LOGUSER;
+	val=LOGFILE_LOGPID | LOGFILE_LOGUSER | LOGFILE_TIMESTAMP | LOGFILE_MILLISECS;
 	if (Settings.Flags & FLAG_SYSLOG)
 	{
  	 val |=LOGFILE_SYSLOG;
@@ -188,7 +189,7 @@ char *Token=NULL, *ptr;
   }
 	Token=SubstituteVarsInString(Token,Settings.LogPath,Session->Vars,0);
 	Settings.LogPath=CopyStr(Settings.LogPath,Token);
-	LogFileSetValues(Settings.LogPath, val, 100000000, 0);
+	LogFileFindSetValues(Settings.LogPath, val, 100000000, 0, 0);
 
 		if (Settings.Flags & FLAG_LOGPASSWORDS) LogToFile(Settings.ServerLogPath,"RCV: PASS '%s'",Session->Passwd);
 		else LogToFile(Settings.ServerLogPath,"RCV: PASS ????");
@@ -325,6 +326,8 @@ void HandleUSER(TSession *Session, char *User)
   if (strchr(Session->User,'@')) ProxyHandleUSER(Session,User);
   else 
 	{
+		//Always respond OK even for usernames that don't exist. This prevents an
+		//attacker from enumerating the real users on the system.
 		STREAMWriteLine("331 OK\r\n", Session->ClientSock);
 		STREAMFlush(Session->ClientSock);
 		LogToFile(Settings.ServerLogPath,"331 OK");
@@ -353,7 +356,8 @@ char *Tempstr=NULL, *HookArgs=NULL;
   {
     STREAMWriteLine("430 Authentication Failed\r\n", Session->ClientSock);
 		STREAMFlush(Session->ClientSock);
-		LogToFile(Settings.ServerLogPath,"User %s Logon FAILED",Session->User);
+		LogToFile(Settings.ServerLogPath,"User %s@%s Logon FAILED",Session->User,Session->ClientIP);
+		sleep(5);
   }
 
 DestroyString(HookArgs);
@@ -729,12 +733,54 @@ return(ModLine);
 }
 
 
+char *FormatMLSDFacts(char *RetStr, char *FactsList, struct stat *Stat)
+{
+char *Token=NULL, *ptr;
+
+ptr=GetToken(FactsList,";",&Token,0);
+while (ptr)
+{
+	 switch (*Token)
+	 {
+			case 'c':
+				if (strcmp(Token,"create")==0) RetStr=MCatStr(RetStr, "create=",GetDateStrFromSecs("%Y%m%d%H%M%S",Stat->st_ctime,NULL),";",NULL);
+			break;
+
+			case 't':
+   			if (strcmp(Token,"type")==0)
+				{
+					if (S_ISDIR(Stat->st_mode)) RetStr=CatStr(RetStr,"type=dir;");
+					else RetStr=CatStr(RetStr,"type=file;");
+				}
+			break;
+
+			case 'm':
+				if (strcmp(Token,"modify")==0) RetStr=MCatStr(RetStr, "modify=",GetDateStrFromSecs("%Y%m%d%H%M%S",Stat->st_mtime,NULL),";",NULL);
+			break;
+
+			case 's':
+				if (strcmp(Token,"size")==0)
+				{
+					Token=FormatStr(Token,"size=%llu;",(unsigned long long) Stat->st_size);
+					RetStr=CatStr(RetStr,Token);
+				}
+			break;
+   }
+
+ptr=GetToken(ptr,";",&Token,0);
+}
+
+DestroyString(Token);
+return(RetStr);
+}
+
+
 
 void SendDirItemInfo(TSession *Session, STREAM *DataCon, char *Path, int ListFormat)
 {
 struct stat FileData;
 char *Tempstr=NULL;
-char *UName=NULL, *GName=NULL;
+char *UName=NULL, *GName=NULL, *MLSD=NULL;
 unsigned long long filesize;
 
 
@@ -753,12 +799,12 @@ if (
 
   if (ListFormat==LIST_MLSD)
   {
-   if (S_ISDIR(FileData.st_mode)) Tempstr=FormatStr(Tempstr,"type=dir;modify=%s; %s",GetDateStrFromSecs("%Y%m%d%H%M%S",FileData.st_mtime,NULL),Path);
-   else Tempstr=FormatStr(Tempstr,"type=file;size=%llu;modify=%s; %s",filesize,GetDateStrFromSecs("%Y%m%d%H%M%S",FileData.st_mtime,NULL),Path);
+		MLSD=FormatMLSDFacts(MLSD, Session->MLSFactsList, &FileData);
+		Tempstr=MCopyStr(Tempstr,MLSD," ",Path,NULL);
   }
   else
   {
-   Tempstr=FormatStr(Tempstr,"%s % 3d % 8s % 8s % 8llu %s %s",DirFormatFileMode(FileData.st_mode),FileData.st_nlink,UName,GName,filesize,GetDateStrFromSecs("%b %d %H:%M",FileData.st_mtime,NULL),Path);
+		Tempstr=FormatStr(Tempstr,"%s % 3d % 8s % 8s % 8llu %s %s",DirFormatFileMode(FileData.st_mode),FileData.st_nlink,UName,GName,filesize,GetDateStrFromSecs("%b %d %H:%M",FileData.st_mtime,NULL),Path);
   }
 }
 else Tempstr=FormatStr(Tempstr,"%s",Path);
@@ -769,6 +815,7 @@ STREAMWriteLine(Tempstr,DataCon);
 DestroyString(Tempstr);
 DestroyString(UName);
 DestroyString(GName);
+DestroyString(MLSD);
 }
 
 
@@ -894,6 +941,7 @@ DestroyString(Tempstr);
 }
 
 
+//MDTM  command gets modify time of a file
 void HandleMDTM(TSession *Session, char *Args)
 {
 struct stat Stat;
@@ -908,7 +956,7 @@ if (StrLen(ptr)==0)
 	else
 	{
 		Tempstr=FormatStr(Tempstr,"213 %s",GetDateStrFromSecs("%Y%m%d%H%M%S",Stat.st_mtime,NULL));
-  SendLoggedLine(Tempstr, Session->ClientSock);
+		SendLoggedLine(Tempstr, Session->ClientSock);
 	}
 }
 else HandleSetTime(Session, ptr, Tempstr, "213");
@@ -965,7 +1013,7 @@ LogToFile(Settings.LogPath,"GET %s",Path);
 if (Session->Flags & SESSION_TAR_STRUCTURE)
 {
 	InFile=STREAMCreate();
-	PipeSpawnFunction(&InFile->out_fd,&InFile->in_fd, NULL, TarFunc, Path);
+	PipeSpawnFunction(&InFile->out_fd,&InFile->in_fd, NULL, (BASIC_FUNC) TarFunc, Path);
 }
 else
 {
@@ -1077,7 +1125,7 @@ int val=0;
 	if (Session->Flags & SESSION_TAR_STRUCTURE)
 	{
 		OutFile=STREAMCreate();
-		PipeSpawnFunction(&OutFile->out_fd,&OutFile->in_fd, NULL, UnTarFunc, Path);
+		PipeSpawnFunction(&OutFile->out_fd,&OutFile->in_fd, NULL, (BASIC_FUNC) UnTarFunc, Path);
 	}
 	else if (Append) OutFile=STREAMOpenFile(Path, O_WRONLY | O_CREAT | O_APPEND);
 	else if (val > 0) 
@@ -1126,8 +1174,9 @@ int val=0;
 		DC->Input=DC->Sock;
 		DC->Output=OutFile;
 		Session->DataConnection=NULL;
-		STREAMSetItem(DC->Input,"DataCon",DC->Input);
+		STREAMSetItem(DC->Input,"DataCon",DC);
 		ListAddItem(Session->Connections,DC->Input);
+
   	DC->FileName=CopyStr(DC->FileName,Path);
   	DC->Flags |= DC_STOR;
 		DC->BytesSent=(double) STREAMTell(OutFile);
@@ -1336,6 +1385,19 @@ DestroyString(Tempstr);
 DestroyString(Info);
 }
 
+void HandleSITE_PSWD(TSession *Session, char *Args, int RequireCurrPassword)
+{
+char *OldPass=NULL, *NewPass=NULL, *ptr;
+
+ptr=Args;
+if (RequireCurrPassword) ptr=GetToken(ptr,"\\S",&OldPass,GETTOKEN_QUOTES);
+ptr=GetToken(ptr,"\\S",&NewPass,GETTOKEN_QUOTES);
+
+UpdateNativeFile(Settings.AuthFile, Session->User, NULL, NewPass, NULL, NULL, NULL);
+
+DestroyString(OldPass);
+DestroyString(NewPass);
+}
 
 
 void HandleSITE(TSession *Session, char *Arg)
@@ -1354,6 +1416,8 @@ else if (strcasecmp(Tempstr,"UMASK")==0) HandleSITE_UMASK(Session,ptr);
 else if (strcasecmp(Tempstr,"ZONE")==0) HandleSITE_ZONE(Session,ptr);
 else if (strcasecmp(Tempstr,"WHO")==0) HandleSITE_WHO(Session,ptr);
 else if (strcasecmp(Tempstr,"TIME")==0) HandleSITE_TIME(Session,ptr);
+else if (strcasecmp(Tempstr,"PSWD")==0) HandleSITE_PSWD(Session,ptr,TRUE);
+else if (strcasecmp(Tempstr,"CPWD")==0) HandleSITE_PSWD(Session,ptr,FALSE);
 else if (strcasecmp(Tempstr,"IDLE")==0) 
 {
 	Settings.DefaultIdle=atoi(ptr);
@@ -1384,9 +1448,9 @@ SendLoggedLine(Tempstr,Session->ClientSock);
 if (DataProcessorAvailable("compression","zlib")) SendLoggedLine(" MODE Z",Session->ClientSock);
 
 Tempstr=CopyStr(Tempstr," HASH ");
-for (i=0; HashTypes[i] !=NULL; i++)
+for (i=0; HashNames[i] !=NULL; i++)
 {
-Tempstr=MCatStr(Tempstr,HashTypes[i],";",NULL);
+Tempstr=MCatStr(Tempstr,HashNames[i],";",NULL);
 }
 SendLoggedLine(Tempstr,Session->ClientSock);
 
@@ -1505,7 +1569,7 @@ char *Token=NULL, *ptr;
 	else
 	{
 		ptr=GetToken(Args,"\\S",&Token,0);
-		if (MatchTokenFromList(Token,HashTypes,0) > -1)
+		if (MatchTokenFromList(Token,HashNames,0) > -1)
 		{
 			SetVar(Session->Vars,"Opt:HASH",Token);
 			SendLoggedLine("200 Option set",Session->ClientSock); 
@@ -1630,7 +1694,7 @@ case CMD_XSHA256: HandleHASH(Session, HASH_SHA256, Arg,0,0); break;
 case CMD_XSHA512: HandleHASH(Session, HASH_SHA512, Arg,0,0); break;
 case CMD_HASH: 
 	ptr=GetVar(Session->Vars,"Opt:HASH");
-	val=MatchTokenFromList(ptr,HashTypes, NULL);
+	val=MatchTokenFromList(ptr,HashNames, 0);
 	if (val==-1) val=HASH_MD5;
 	HandleHASH(Session, val, Arg, 0, 0); 
 break;

@@ -1,21 +1,21 @@
 CC = gcc
 VERSION = 1.0.0
 CFLAGS = -g -O2
-LIBS = -lcrypt -lpam -lz 
+LIBS = -lcrypt -lpam -lz -lcap 
 INSTALL=/bin/install -c
 prefix=/usr/local
 exec_prefix=${prefix}
 bindir=${exec_prefix}/bin
 sysconfdir=${prefix}/etc
-FLAGS=$(CFLAGS) -DPACKAGE_NAME=\"\" -DPACKAGE_TARNAME=\"\" -DPACKAGE_VERSION=\"\" -DPACKAGE_STRING=\"\" -DPACKAGE_BUGREPORT=\"\" -DPACKAGE_URL=\"\" -DSTDC_HEADERS=1 -DHAVE_SYS_TYPES_H=1 -DHAVE_SYS_STAT_H=1 -DHAVE_STDLIB_H=1 -DHAVE_STRING_H=1 -DHAVE_MEMORY_H=1 -DHAVE_STRINGS_H=1 -DHAVE_INTTYPES_H=1 -DHAVE_STDINT_H=1 -DHAVE_UNISTD_H=1 -DUSE_LINUX_CAPABILITIES=1 -D_LARGEFILE64_SOURCE=1 -D_FILE_OFFSET_BITS=64 -DHAVE_LIBZ=1 -DHAVE_LIBPAM=1 -DHAVE_LIBCRYPT=1 -DHAVE_SHADOW_H=1 
+FLAGS=$(CFLAGS) -DPACKAGE_NAME=\"\" -DPACKAGE_TARNAME=\"\" -DPACKAGE_VERSION=\"\" -DPACKAGE_STRING=\"\" -DPACKAGE_BUGREPORT=\"\" -DPACKAGE_URL=\"\" -DSTDC_HEADERS=1 -DHAVE_SYS_TYPES_H=1 -DHAVE_SYS_STAT_H=1 -DHAVE_STDLIB_H=1 -DHAVE_STRING_H=1 -DHAVE_MEMORY_H=1 -DHAVE_STRINGS_H=1 -DHAVE_INTTYPES_H=1 -DHAVE_STDINT_H=1 -DHAVE_UNISTD_H=1 -DHAVE_LIBCAP=1 -DUSE_LINUX_CAPABILITIES=1 -DHAVE_LIBZ=1 -DHAVE_LIBPAM=1 -DHAVE_LIBCRYPT=1 -DHAVE_SHADOW_H=1 
 
-OBJ=Authenticate.o Settings.o ftp-commands.o proxy.o common.o connections.o IPC.o libUseful-2.0/libUseful-2.0.a
+OBJ=Authenticate.o Settings.o ftp-commands.o proxy.o common.o connections.o IPC.o libUseful-2.3/libUseful-2.3.a
 
 all: $(OBJ) main.c
 	gcc -g $(FLAGS) $(LIBS) -o metaftpd main.c $(OBJ)
 
-libUseful-2.0/libUseful-2.0.a:
-	@cd libUseful-2.0; $(MAKE)
+libUseful-2.3/libUseful-2.3.a:
+	@cd libUseful-2.3; $(MAKE)
 
 
 Authenticate.o: Authenticate.c Authenticate.h 

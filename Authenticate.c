@@ -1,4 +1,5 @@
 #include "Authenticate.h"
+#include "Settings.h"
 #include <pwd.h>
 
 
@@ -188,7 +189,7 @@ int PAMConvFunc(int NoOfMessages, const struct pam_message **messages,
          struct pam_response **responses, void *appdata)
 {
 int count;
-struct pam_message *mess;
+const struct pam_message *mess;
 struct pam_response *resp;
 
 *responses=(struct pam_response *) calloc(NoOfMessages,sizeof(struct pam_response));
@@ -274,37 +275,70 @@ return(Possibilities[i]);
 }
 
 
-
-
-
-int CheckNativeFilePassword(char *PasswordType,char *Password,char *ProvidedPass)
+int CheckNativeFileChallengePassword(char *Challenge, char *Password, char *ProvidedPass)
 {
+char *Token=NULL, *Digest=NULL, *Tempstr=NULL, *ptr;
+int RetVal=FALSE;
+
+	if (strcmp(Password,ProvidedPass)==0) return(TRUE);
+
+	if (! StrLen(Challenge)) return(FALSE);
+
+	ptr=GetToken(Settings.AuthMethods,",",&Token,0);
+	while (ptr)
+	{
+		if (strncmp(Token,"hp-",3)==0)
+		{
+		Tempstr=MCopyStr(Tempstr,Challenge,Password,NULL);
+		HashBytes(&Digest,Token+3,Tempstr,StrLen(Tempstr),ENCODE_HEX);
+		if (StrLen(Digest) && (strcasecmp(ProvidedPass, Digest)==0)) RetVal=TRUE;
+		}
+	ptr=GetToken(ptr,",",&Token,0);
+	}
+
+	DestroyString(Tempstr);
+	DestroyString(Digest);
+	DestroyString(Token);
+	return(RetVal);
+}
+
+
+int CheckNativeFileHashedPassword(char *PasswordType, char *Password, char *ProvidedPass)
+{
+char *HashTypes[]={"md5","sha1","sha256","sha512","whirlpool","jh-224","jh-256","jh-384","jh-512",NULL};
 char *Digest=NULL;
-char *HashTypes[]={"md5","sha1","sha256","sha512",NULL};
+int RetVal=FALSE;
 int i;
 
-if (strcmp(PasswordType,"null")==0) return(TRUE);
-if (
-			(strcmp(PasswordType,"plain")==0) &&
-			(strcmp(Password,ProvidedPass)==0) 
-	)
-return(TRUE);
-
-for (i=0; HashTypes[i] !=NULL; i++)
+for (i=0; (! RetVal) && (HashTypes[i] !=NULL); i++)
 {
 if (strcmp(PasswordType,HashTypes[i])==0) 
 {
 	HashBytes(&Digest,HashTypes[i],ProvidedPass,StrLen(ProvidedPass),ENCODE_HEX);
-	if (strcasecmp(Password,Digest)==0)
-	{
-		DestroyString(Digest);
-		return(TRUE);
-	}
+	if (strcasecmp(Password,Digest)==0) RetVal=TRUE;
 }
 }
 
-return(FALSE);
+DestroyString(Digest);
+return(RetVal);
 }
+
+
+
+int CheckNativeFilePassword(char *PasswordType, char *Password, char *ProvidedPass, TSession *Session)
+{
+if (strcmp(PasswordType,"null")==0) return(TRUE);
+
+if (strcmp(PasswordType,"plain")==0)
+{
+	if (strcmp(Password,ProvidedPass)==0) return(TRUE);
+	return(FALSE);
+}
+
+if (Session && strcmp(PasswordType,"challenge")==0) return(CheckNativeFileChallengePassword(Session->Challenge, Password, ProvidedPass));
+return(CheckNativeFileHashedPassword(PasswordType, Password, ProvidedPass));
+}
+
 
 int AuthNativeFile(TSession *Session)
 {
@@ -338,13 +372,17 @@ while (Tempstr)
   if (strcasecmp(Name,Session->User)==0)
   {
 		RetVal=FALSE;
-		if (CheckNativeFilePassword(PasswordType,Pass,Session->Passwd))
+		if (CheckNativeFilePassword(PasswordType,Pass,Session->Passwd,Session))
     {
 			RetVal=TRUE;
 			Session->RealUser=CopyStr(Session->RealUser,RealUser);	
 			if (StrLen(HomeDir)) Session->HomeDir=CopyStr(Session->HomeDir,HomeDir);	
 			Session->UserSettings=CopyStr(Session->UserSettings,ptr);
 			LogToFile(Settings.ServerLogPath,"AUTH OK %s [%s] [%s]",Name,Session->HomeDir,Session->RealUser);
+			if (StrLen(Settings.UpdatePasswordType) && (strcasecmp(Settings.UpdatePasswordType, PasswordType) !=0) && (strcasecmp(PasswordType, "challenge") !=0))
+			{
+			UpdateNativeFile(S->Path, Name, Settings.UpdatePasswordType, Session->Passwd, HomeDir, RealUser, ptr);
+			}
     }
 		break;
   }
@@ -400,11 +438,12 @@ DestroyString(Token);
 
 
 
-int UpdateNativeFile(char *Path, char *Name, char *PassType, char *Pass, char *HomeDir, char *RealUser, char *Args)
+int UpdateNativeFile(char *Path, char *Name, char *iPassType, char *Pass, char *iHomeDir, char *iRealUser, char *iArgs)
 {
 STREAM *S;
 ListNode *Entries;
-char *Tempstr=NULL, *Token=NULL;
+char *Tempstr=NULL, *Token=NULL, *ptr;
+char *PassType=NULL, *HomeDir=NULL, *RealUser=NULL, *Args=NULL;
 ListNode *Curr;
 int RetVal=ERR_FILE;
 
@@ -416,14 +455,27 @@ if (S)
 	Tempstr=STREAMReadLine(Tempstr,S);
 	while (Tempstr)
 	{
-		GetToken(Tempstr,":",&Token,0);
+		ptr=GetToken(Tempstr,":",&Token,0);
 
 		if (strcmp(Token,Name) !=0) ListAddItem(Entries,CopyStr(NULL,Tempstr));	
+		else 
+		{
+			ptr=GetToken(ptr,":",&PassType,0);
+			ptr=GetToken(ptr,":",&Token,0);
+			ptr=GetToken(ptr,":",&RealUser,0);
+			ptr=GetToken(ptr,":",&HomeDir,0);
+			ptr=GetToken(ptr,":",&Args,0);
+		}
 	
 		Tempstr=STREAMReadLine(Tempstr,S);
 	}
 	STREAMClose(S);
 }
+
+if (iPassType) PassType=CopyStr(PassType,iPassType);
+if (iHomeDir) HomeDir=CopyStr(HomeDir,iHomeDir);
+if (iRealUser) RealUser=CopyStr(RealUser,iRealUser);
+if (iArgs) Args=CopyStr(Args,iArgs);
 
 
 S=STREAMOpenFile(Path,O_WRONLY| O_CREAT | O_TRUNC);
@@ -447,8 +499,10 @@ if (S)
 	{
 		//Do this or else HashBytes appends
 		Token=CopyStr(Token,"");
-		if (strcmp(PassType,"plain") != 0) HashBytes(&Token, PassType, Pass, StrLen(Pass), ENCODE_HEX);
-		else Token=CopyStr(Token,Pass);
+		if (strcmp(PassType,"plain") == 0) Token=CopyStr(Token,Pass);
+		else if (strcmp(PassType,"challenge") == 0) Token=CopyStr(Token,Pass);
+		else HashBytes(&Token, PassType, Pass, StrLen(Pass), ENCODE_HEX);
+
 		Tempstr=MCopyStr(Tempstr,Name,":",PassType,":",Token,":",RealUser,":",HomeDir,":",Args,"\n",NULL);
 	
 		STREAMWriteLine(Tempstr,S);
@@ -462,6 +516,10 @@ if (S)
 }
 else printf("ERROR: failed to open authorization file %s for update\n",Path);
 
+DestroyString(Args);
+DestroyString(HomeDir);
+DestroyString(RealUser);
+DestroyString(PassType);
 DestroyString(Tempstr);
 DestroyString(Token);
 ListDestroy(Entries,DestroyString);
@@ -474,6 +532,8 @@ int Authenticate(TSession *Session, int AuthType)
 int result=0;
 char *Token=NULL, *ptr;
 struct passwd *pwent;
+
+
 
 AuthenticationsTried=CopyStr(AuthenticationsTried,"");
 if (! CheckUserExists(Session->User))
@@ -490,6 +550,7 @@ if (! CheckServerAllowDenyLists(Session->User)) return(FALSE);
 ptr=GetToken(Settings.AuthMethods,",",&Token,0);
 while (ptr)
 {
+
 	if (strcasecmp(Token,"native")==0) result=AuthNativeFile(Session);
 	else if (strcasecmp(Token,"shadow")==0) result=AuthShadowFile(Session);
 	else if (strcasecmp(Token,"passwd")==0) result=AuthPasswdFile(Session);

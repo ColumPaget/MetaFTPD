@@ -1,8 +1,214 @@
 #include "Settings.h"
+#include <grp.h>
 
-char *ArgStrings[]={"-proxy","-chhome","-chroot","-chshare","-port","-p","-4","-nodemon","-I","-inetd","-f","-a","-allowusers","-denyusers","-nopasv","-dclow","-dchigh","-logfile","-l","-syslog","-idle","-maxidle","-mlocks","-alocks","-malocks","-i","-bindaddress","-dcus","-dcds","-?","-help","--help","-version","--version",NULL};
-typedef enum {ARG_PROXY,ARG_CHHOME,ARG_CHROOT,ARG_CHSHARE,ARG_PORT,ARG_PORT2,ARG_IPV4,ARG_NODEMON,ARG_INETD,ARG_INETD2,ARG_CONFIG_FILE, ARG_AUTH_FILE, ARG_ALLOWUSERS,ARG_DENYUSERS,ARG_NOPASV, ARG_DCLOW,ARG_DCHIGH,ARG_LOGFILE,ARG_LOGFILE2,ARG_SYSLOG,ARG_IDLE,ARG_MAXIDLE,ARG_MLOCKS,ARG_ALOCKS,ARG_MALOCKS,ARG_INTERFACE,ARG_BINDADDRESS,ARG_DCUPSCRIPT, ARG_DCDOWNSCRIPT,ARG_HELP1,ARG_HELP2,ARG_HELP3,ARG_VERSION,ARG_VERSION2};
+TSettings Settings;
 
+const char *ArgStrings[]={"-proxy","-chhome","-chroot","-chshare","-port","-p","-4","-nodemon","-I","-inetd","-f","-A","-a","-allowusers","-denyusers","-nopasv","-dclow","-dchigh","-logfile","-l","-syslog","-idle","-maxidle","-mlocks","-alocks","-malocks","-i","-bindaddress","-dcus","-dcds","-update-pass","-?","-help","--help","-version","--version",NULL};
+typedef enum {ARG_PROXY,ARG_CHHOME,ARG_CHROOT,ARG_CHSHARE,ARG_PORT,ARG_PORT2,ARG_IPV4,ARG_NODEMON,ARG_INETD,ARG_INETD2,ARG_CONFIG_FILE, ARG_AUTH_METHODS, ARG_AUTH_FILE, ARG_ALLOWUSERS,ARG_DENYUSERS,ARG_NOPASV, ARG_DCLOW,ARG_DCHIGH,ARG_LOGFILE,ARG_LOGFILE2,ARG_SYSLOG,ARG_IDLE,ARG_MAXIDLE,ARG_MLOCKS,ARG_ALOCKS,ARG_MALOCKS,ARG_INTERFACE,ARG_BINDADDRESS,ARG_DCUPSCRIPT, ARG_DCDOWNSCRIPT,ARG_UPDATE_PASSWORD,ARG_HELP1,ARG_HELP2,ARG_HELP3,ARG_VERSION,ARG_VERSION2} EArgStrings;
+
+#define BASIC_COMMANDS "NOOP,USER,PASS,PORT,XCWD,CWD,XCUP,CDUP,TYPE,RETR,STOR,LIST,NLST,MLST,MLSD,XDEL,DELE,QUIT,XPWD,PWD,XMKD,MKD,XRMD,RMD,RNFR,RNTO,PASV,FEAT"
+
+
+void ParsePermittedCommands(TSettings *Settings, char *Features)
+{
+char *ptr, *Token=NULL;
+
+Settings->PermittedCommands=CopyStr(Settings->PermittedCommands,"");
+ptr=GetToken(Features,",",&Token,GETTOKEN_QUOTES);
+while (ptr)
+{
+	if (strcasecmp(Token,"Basic")==0) Settings->PermittedCommands=MCatStr(Settings->PermittedCommands,BASIC_COMMANDS,",",NULL);
+	else Settings->PermittedCommands=MCatStr(Settings->PermittedCommands,Token,",",NULL);
+
+	ptr=GetToken(ptr,",",&Token,GETTOKEN_QUOTES);
+}
+
+DestroyString(Token);
+}
+
+
+char *ReadBannerFile(char *RetStr, char *Path)
+{
+char *Tempstr=NULL;
+STREAM *S;
+
+S=STREAMOpenFile(Path, SF_RDONLY);
+if (! S) return(RetStr);
+
+Tempstr=SetStrLen(Tempstr,8196);
+STREAMReadBytes(S, Tempstr, 8196);
+RetStr=CopyStr(RetStr,Tempstr);
+
+DestroyString(Tempstr);
+STREAMClose(S);
+
+return(RetStr);
+}
+
+
+
+void ParseConfigItem(char *ConfigLine)
+{
+char *Token=NULL, *ptr;
+int result;
+const char *ConfTokens[]={"Chroot","Chshare","Chhome","AllowUsers","DenyUsers","Port","Banner","BannerFile","DataConnectionLowPort","DataConnectionHighPort","DataConnectionPortRange","ServLogFile","LogFile","Idle","MaxIdle","Locks","AuthFile","BindAddress","LogPasswords","AuthMethods","UserPrompt","PermittedCommands","DefaultGroup","MaxFileSize","UploadHook", "DownloadHook","RenameHook","DeleteHook","LoginHook","LogoutHook","ConnectUpHook","ConnectDownHook",NULL};
+typedef enum {CT_CHROOT, CT_CHSHARE, CT_CHHOME, CT_ALLOWUSERS,CT_DENYUSERS,CT_PORT,CT_BANNER,CT_BANNERFILE,CT_DC_LOW_PORT, CT_DC_HIGH_PORT, CT_DC_RANGE,CT_SERVLOGFILE,CT_LOGFILE,CT_IDLE,CT_MAXIDLE,CT_LOCKS,CT_AUTHFILE,CT_BINDADDRESS,CT_LOGPASSWORDS,CT_AUTHMETHODS,CT_USERPROMPT,CT_PERMITTEDCOMMANDS,CT_DEFAULTGROUP, CT_MAXFILESIZE, CT_UPLOADHOOK, CT_DOWNLOADHOOK, CT_RENAMEHOOK, CT_DELETEHOOK, CT_LOGINHOOK, CT_LOGOUTHOOK, CT_CONNECTUPHOOK, CT_CONNECTDOWNHOOK} EConfigStrings;
+struct group *grent;
+
+
+ ptr=GetToken(ConfigLine,"=",&Token,0);
+ StripLeadingWhitespace(Token);
+ StripTrailingWhitespace(Token);
+ result=MatchTokenFromList(Token,ConfTokens,0);
+
+	if (ptr)
+	{
+	 StripLeadingWhitespace(ptr);
+	 StripTrailingWhitespace(ptr);
+	}
+
+   switch(result)
+   {
+	case CT_PORT:
+		Settings.Port=atoi(ptr);
+	break;
+
+	case CT_CHROOT:
+		Settings.Flags|=FLAG_CHROOT;
+		Settings.Chroot=CopyStr(Settings.Chroot,ptr);
+	break;
+
+	case CT_CHSHARE:
+		Settings.Flags|=FLAG_CHSHARE;
+		Settings.Chroot=CopyStr(Settings.Chroot,ptr);
+	break;
+
+	case CT_CHHOME:
+		Settings.Flags|=FLAG_CHHOME;
+	break;
+
+	case CT_ALLOWUSERS:
+		Settings.AllowUsers=CopyStr(Settings.AllowUsers,ptr);
+	break;
+
+	case CT_DENYUSERS:
+		Settings.DenyUsers=CopyStr(Settings.DenyUsers,ptr);
+	break;
+
+	case CT_DC_LOW_PORT:
+		Settings.DataConnectionLowPort=atoi(ptr);
+	break;
+
+	case CT_DC_HIGH_PORT:
+		Settings.DataConnectionHighPort=atoi(ptr);
+	break;
+
+	case CT_DC_RANGE:
+		ptr=GetToken(ptr,"-",&Token,0);
+		Settings.DataConnectionLowPort=atoi(Token);
+		Settings.DataConnectionHighPort=atoi(ptr);
+	break;
+
+	case CT_IDLE:
+		Settings.DefaultIdle=atoi(ptr);
+	break;
+
+	case CT_MAXIDLE:
+		Settings.MaxIdle=atoi(ptr);
+	break;
+
+	case CT_BANNER:
+		Settings.ConnectBanner=CopyStr(Settings.ConnectBanner,ptr);
+	break;
+
+	case CT_BANNERFILE:
+		Settings.ConnectBanner=ReadBannerFile(Settings.ConnectBanner,ptr);
+	break;
+
+	case CT_AUTHFILE:
+		Settings.AuthFile=CopyStr(Settings.AuthFile,ptr);
+	break;
+
+	case CT_SERVLOGFILE:
+		Settings.ServerLogPath=CopyStr(Settings.ServerLogPath,ptr);
+	break;
+
+	case CT_LOGFILE:
+		Settings.LogPath=CopyStr(Settings.LogPath,ptr);
+	break;
+
+	case CT_LOCKS:
+		if (strcmp(ptr,"Advisory")==0) Settings.Flags |= FLAG_ALOCK;
+		else if (strcmp(ptr,"Mandatory")==0) Settings.Flags |= FLAG_MLOCK;
+		else if (strcmp(ptr,"MandatoryWrite")==0) Settings.Flags |= FLAG_MLOCK | FLAG_ALOCK;
+	break;
+
+	case CT_BINDADDRESS:
+		Settings.BindAddress=CopyStr(Settings.BindAddress,ptr);
+	break;
+
+	case CT_LOGPASSWORDS:
+		Settings.Flags |= FLAG_LOGPASSWORDS;
+	break;
+
+	case CT_AUTHMETHODS:
+		Settings.AuthMethods=CopyStr(Settings.AuthMethods,ptr);
+	break;
+
+	case CT_USERPROMPT:
+		Settings.UserPrompt=CopyStr(Settings.UserPrompt,ptr);
+	break;
+
+	case CT_PERMITTEDCOMMANDS:
+			ParsePermittedCommands(&Settings,ptr);
+	break;
+
+	case CT_DEFAULTGROUP:
+    grent=getgrnam(ptr);
+		Settings.DefaultGroupID=grent->gr_gid;
+	break;
+
+	case CT_MAXFILESIZE:
+		Settings.MaxFileSize=strtod(ptr,NULL);
+	break;
+
+	case CT_UPLOADHOOK:
+		Settings.UploadHook=CopyStr(Settings.UploadHook,ptr);
+	break;
+
+	case CT_DOWNLOADHOOK:
+		Settings.DownloadHook=CopyStr(Settings.DownloadHook,ptr);
+	break;
+
+	case CT_RENAMEHOOK:
+		Settings.RenameHook=CopyStr(Settings.RenameHook,ptr);
+	break;
+
+	case CT_DELETEHOOK:
+		Settings.DeleteHook=CopyStr(Settings.DeleteHook,ptr);
+	break;
+
+	case CT_LOGINHOOK:
+		Settings.LoginHook=CopyStr(Settings.LoginHook,ptr);
+	break;
+
+	case CT_LOGOUTHOOK:
+		Settings.LogoutHook=CopyStr(Settings.LogoutHook,ptr);
+	break;
+
+	case CT_CONNECTUPHOOK:
+		Settings.ConnectUpHook=CopyStr(Settings.ConnectUpHook,ptr);
+	break;
+
+	case CT_CONNECTDOWNHOOK:
+		Settings.ConnectDownHook=CopyStr(Settings.ConnectDownHook,ptr);
+	break;
+
+
+  }
+
+DestroyString(Token);
+}
 
 
 
@@ -15,7 +221,6 @@ int i;
 fprintf(stdout,"\nMetaFTPd FTP Server: version %s\n",Version);
 fprintf(stdout,"Author: Colum Paget\n");
 fprintf(stdout,"Email: colums.projects@gmail.com\n");
-fprintf(stdout,"Blog: http://idratherhack.blogspot.com \n");
 fprintf(stdout,"\n");
 
 for (i=0; ArgStrings[i] !=NULL; i++)
@@ -172,6 +377,10 @@ for (count=1; count < argc; count++)
 		Settings.ConfigFile=CopyStr(Settings.ConfigFile,argv[++count]);
 	break;
 
+	case ARG_AUTH_METHODS:
+		Settings.AuthMethods=CopyStr(Settings.AuthMethods,argv[++count]);
+	break;
+
 	case ARG_AUTH_FILE:
 		Settings.AuthFile=CopyStr(Settings.AuthFile,argv[++count]);
 	break;
@@ -228,6 +437,10 @@ for (count=1; count < argc; count++)
 
 	case ARG_IPV4:
 		Settings.BindAddress=CopyStr(Settings.BindAddress,"0.0.0.0");
+	break;
+
+	case ARG_UPDATE_PASSWORD:
+  	Settings.UpdatePasswordType=CopyStr(Settings.UpdatePasswordType, argv[++count]);
 	break;
 
 

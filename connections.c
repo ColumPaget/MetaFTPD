@@ -1,9 +1,23 @@
 #include "connections.h"
+#include "Settings.h"
 #include "IPC.h"
 
 #ifdef HAVE_IPTABLES
 #include <linux/netfilter_ipv4.h>
 #endif
+
+
+
+
+TDataConnection *DataConnectionCreate()
+{
+TDataConnection *Con;
+
+Con=(TDataConnection *) calloc(1,sizeof(TDataConnection));
+Con->ListenSock=-1;
+
+return(Con);
+}
 
 
 /* This is a bit of kernel magic to decide where the client was trying */
@@ -46,7 +60,7 @@ salen=sizeof(sa);
 if (connect(sock,(struct sockaddr *) &sa,salen)==0)
 {
   InvokeSock=STREAMFromFD(sock);
-    STREAMSetFlushType(InvokeSock,FLUSH_LINE,0);
+  STREAMSetFlushType(InvokeSock,FLUSH_LINE,0, 0);
 }
 }
 
@@ -76,7 +90,7 @@ struct sockaddr_in sa, cs_sa;
 char *Tempstr=NULL;
 int Tempval;
 
-fd=InitServerSock(BindAddress,Port);
+fd=InitServerSock(SOCK_STREAM, BindAddress, Port);
 if (result == -1)
 {
 close(fd);
@@ -84,7 +98,7 @@ return(-1);
 }
 
 GetSockDetails(fd,ResultAddress,ResultPort,&Tempstr,&Tempval);
-LogToFile(Settings.LogPath, "Bind for PASV DataConnection: %s:%d",*ResultAddress,*ResultPort);
+LogToFile(Settings.LogPath, "Bind for PASV DataConnection: %s:%d %s:%d",BindAddress, Port, *ResultAddress,*ResultPort);
 
 DestroyString(Tempstr);
 
@@ -421,6 +435,7 @@ ListNode *Vars;
 
 	/* in FTP we have commas in IP addresses rather than dots (!??!!) */
 	Tempstr=CopyStr(Tempstr,DC->DestAddress);
+	LogToFile(Settings.LogPath,"DESTA: %s",DC->DestAddress);
 	strrep(Tempstr,'.',',');
 	SetVar(Vars,"DestAddressCSV",Tempstr);
 
