@@ -2,7 +2,7 @@
 #include <sys/param.h>
 #include "Settings.h"
 
-char *Version="1.1.0";
+char *Version="1.2.0";
 const char *HashNames[]={"CRC32","MD5","SHA-1","SHA-256","SHA-512","WHIRL","WHIRLPOOL","JH-224","JH-256","JH-384","JH-512",NULL};
 
 
