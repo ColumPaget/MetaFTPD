@@ -9,22 +9,20 @@
 #define READ_LOCK 0
 #define WRITE_LOCK 1
 
-const char *HashNames[]={"CRC32","MD5","SHA-1","SHA-256","SHA-512",NULL};
-typedef enum {HASH_CRC, HASH_MD5, HASH_SHA1, HASH_SHA256, HASH_SHA512, HASH_FTPCRC, HASH_FTPMD5} EHashNames;
-
 const char *FtpCommandStrings[]={"NOOP","DENIED","USER","PASS","PORT","XCWD","CWD","XCUP","CDUP","TYPE","RETR","APPE","STOR","REST","LIST","NLST","MLST","MLSD","MDTM","XDEL","DELE","SYST","SITE","STAT","STRU","QUIT","XPWD","PWD","XMKD","MKD","XRMD","RMD","RMDA","RNFR","RNTO","OPTS","SIZE","DSIZ","PASV","EPSV","FEAT","MODE","ALLO","AVBL","REIN","CLNT","MD5","XMD5","XCRC","XSHA","XSHA1","XSHA256","XSHA512","HASH",NULL};
 
-void SendLoggedLine(char *Data, STREAM *S)
+void SendLoggedLine(TSession *Session, char *Data)
 {
 char *Tempstr=NULL;
 
-	LogToFile(Settings.LogPath,Data);
+	if (Session->Flags & SESSION_AUTHENTICATED) LogToFile(Settings.LogPath,Data);
+	else LogToFile(Settings.ServerLogPath,Data);
 
 	//Must send data as one string, because some poorly implemented clients read number of bytes,
 	//rather than reading to a terminator, and thus want all the data to arrive in one packet
   Tempstr=MCopyStr(Tempstr,Data,"\r\n",NULL);
-  STREAMWriteString(Tempstr,S);
-	STREAMFlush(S);
+  STREAMWriteString(Tempstr,Session->ClientSock);
+	STREAMFlush(Session->ClientSock);
 
 	DestroyString(Tempstr);
 }
@@ -256,7 +254,7 @@ S=STREAMOpenFile(Path,O_RDONLY);
 LogToFile(Settings.LogPath,"HASH: [%s] %d",Path,S);
 if (! S)
 {
- SendLoggedLine("504 ERROR: Cannot open file",Session->ClientSock);
+ SendLoggedLine(Session, "504 ERROR: Cannot open file");
 }
 else
 {
@@ -287,9 +285,9 @@ else
 	if (Type==HASH_FTPMD5) Tempstr=MCopyStr(Tempstr,"251 ",Path," ",HashStr,NULL);
 	else if (Type==HASH_FTPCRC) Tempstr=MCopyStr(Tempstr,"250 XCRC ",HashStr,NULL);
 	else Tempstr=MCopyStr(Tempstr,"250 ",HashStr,NULL);
-	SendLoggedLine(Tempstr,Session->ClientSock);
+	SendLoggedLine(Session, Tempstr);
 	}
-  else SendLoggedLine("504 Unsupported hash type",Session->ClientSock);
+  else SendLoggedLine(Session, "504 Unsupported hash type");
 }
 
 DestroyString(Tempstr);
@@ -370,7 +368,7 @@ void HandleREIN(TSession *Session)
 Session->Flags &= ~SESSION_AUTHENTICATED;
 Session->User=CopyStr(Session->User,"");
 Session->Passwd=CopyStr(Session->Passwd,"");
-SendLoggedLine("220 OK Connection Reinitialized", Session->ClientSock);
+SendLoggedLine(Session, "220 OK Connection Reinitialized");
 LogToFile(Settings.LogPath,"User [%s] called REIN and restarted connection",Session->User);
 }
 
@@ -379,7 +377,7 @@ void HandleQUIT(TSession *Session)
 {
 char *Tempstr=NULL, *HookArgs=NULL;
 
-	if (Session->Flags & SESSION_AUTHENTICATED) SendLoggedLine("221 Goodbye", Session->ClientSock);
+	if (Session->Flags & SESSION_AUTHENTICATED) SendLoggedLine(Session, "221 Goodbye");
   else STREAMWriteLine("221 Goodbye\r\n", Session->ClientSock);
 	HookArgs=MCopyStr(HookArgs,"Logout"," '",Session->User,"'",NULL);
 	Tempstr=IPCRequest(Tempstr, Session, "RunHook", HookArgs);
@@ -399,11 +397,11 @@ char *Tempstr=NULL, *HookArgs=NULL;
    LogToFile(Settings.LogPath,"DEL %s",Path);
   if (unlink(Path)==0) 
 	{
-		SendLoggedLine("200 OK", Session->ClientSock);
+		SendLoggedLine(Session, "200 OK");
 		HookArgs=MCopyStr(HookArgs,"Delete"," '",Path,"'",NULL);
 		Tempstr=IPCRequest(Tempstr, Session, "RunHook", HookArgs);
 	}
-  else SendLoggedLine("550 ERROR: unlink failed",Session->ClientSock);
+  else SendLoggedLine(Session,"550 ERROR: unlink failed");
 
 DestroyString(Tempstr);
 DestroyString(HookArgs);
@@ -411,7 +409,7 @@ DestroyString(HookArgs);
 
 void HandleSYST(TSession *Session)
 {
-  SendLoggedLine("215 UNIX Type: L8", Session->ClientSock);
+  SendLoggedLine(Session,"215 UNIX Type: L8");
 }
 
 void HandleTYPE(TSession *Session, char *TypeCode)
@@ -421,14 +419,14 @@ char *Tempstr=NULL;
   if (strcasecmp(TypeCode,"A")==0) 
 	{
 		Session->Flags |=SESSION_ASCII_TRANSFERS;
-  	SendLoggedLine("200 OK ASCII TRANSFERS SELECTED", Session->ClientSock);
+  	SendLoggedLine(Session,"200 OK ASCII TRANSFERS SELECTED");
 	}
   else if (strcasecmp(TypeCode,"I")==0) 
 	{
 		Session->Flags &= ~SESSION_ASCII_TRANSFERS;
-  	SendLoggedLine("200 OK BINARY TRANSFERS SELECTED", Session->ClientSock);
+  	SendLoggedLine(Session,"200 OK BINARY TRANSFERS SELECTED");
 	}
-	else SendLoggedLine("550 ERROR: Unknown Transfer Type", Session->ClientSock);
+	else SendLoggedLine(Session,"550 ERROR: Unknown Transfer Type");
 }
 
 
@@ -436,12 +434,12 @@ void HandleCWD(TSession *Session, char *NewDir)
 {
 char *Tempstr=NULL;
 
-  if (chdir(NewDir)==0) SendLoggedLine("200 OK", Session->ClientSock);
+  if (chdir(NewDir)==0) SendLoggedLine(Session,"200 OK");
 	else 
 	{
 		if (access(NewDir,F_OK)!=0) Tempstr=MCopyStr(Tempstr,"550 ERROR: \"",NewDir,"\" NO SUCH DIR",NULL);
   	else Tempstr=MCopyStr(Tempstr,"550 ERROR: \"",NewDir,"\" chdir  failed (permissions?)",NULL);
-  	SendLoggedLine(Tempstr,Session->ClientSock);
+  	SendLoggedLine(Session,Tempstr);
 	}
 DestroyString(Tempstr);
 }
@@ -455,7 +453,7 @@ Path=SetStrLen(Path,MAXPATHLEN);
 getcwd(Path,MAXPATHLEN);
 
 Tempstr=FormatStr(Tempstr,"257 \"%s\" is current directory",Path);
-SendLoggedLine(Tempstr, Session->ClientSock);
+SendLoggedLine(Session,Tempstr);
 
 DestroyString(Path);
 DestroyString(Tempstr);
@@ -468,7 +466,7 @@ char *Tempstr=NULL;
 if (access(Path,F_OK)==0) Tempstr=MCopyStr(Tempstr,"550 ERROR: \"",Path,"\" exists",NULL);
 else if (mkdir(Path,0700)==0) Tempstr=MCopyStr(Tempstr,"257 \"",Path,"\" created",NULL);
 else Tempstr=MCopyStr(Tempstr,"425 ERROR: \"",Path,"\" FAILED TO MKDIR",NULL);
-SendLoggedLine(Tempstr, Session->ClientSock);
+SendLoggedLine(Session, Tempstr);
 DestroyString(Tempstr);
 }
 
@@ -480,7 +478,7 @@ char *Tempstr=NULL;
 if (access(Path,F_OK)!=0) Tempstr=MCopyStr(Tempstr,"550 ERROR: \"",Path,"\" NO SUCH DIR",NULL);
 else if (rmdir(Path)==0) Tempstr=MCopyStr(Tempstr,"224 \"",Path,"\" deleted",NULL);
 else Tempstr=MCopyStr(Tempstr,"425 ERROR: \"",Path,"\" FAILED TO RMDIR",NULL);
-SendLoggedLine(Tempstr, Session->ClientSock);
+SendLoggedLine(Session, Tempstr);
 DestroyString(Tempstr);
 }
 
@@ -527,11 +525,11 @@ void HandleRMDA(TSession *Session, char *Path)
 {
 char *Tempstr=NULL;
 
-SendLoggedLine("150 Starting Recursive Delete", Session->ClientSock);
+SendLoggedLine(Session, "150 Starting Recursive Delete");
 if (access(Path,F_OK)!=0) Tempstr=MCopyStr(Tempstr,"550 ERROR: \"",Path,"\" NO SUCH DIR",NULL);
 else if (RDelete(Path)) Tempstr=MCopyStr(Tempstr,"224 \"",Path,"\" deleted",NULL);
 else Tempstr=MCopyStr(Tempstr,"425 ERROR: \"",Path,"\" FAILED TO RMDIR",NULL);
-SendLoggedLine(Tempstr, Session->ClientSock);
+SendLoggedLine(Session, Tempstr);
 
 DestroyString(Tempstr);
 }
@@ -583,14 +581,14 @@ struct stat Stat;
 char *Tempstr=NULL;
 int Size;
 
-	if (stat(File,&Stat)==-1) SendLoggedLine("550 ERROR: NO SUCH DIR",Session->ClientSock);
+	if (stat(File,&Stat)==-1) SendLoggedLine(Session,"550 ERROR: NO SUCH DIR");
   else
 	{
 		if (S_ISDIR(Stat.st_mode)) Size=RSize(File);
 		else Size=Stat.st_size;
 
 		Tempstr=FormatStr(Tempstr,"213 %d",Size);
-		SendLoggedLine(Tempstr, Session->ClientSock);
+		SendLoggedLine(Session, Tempstr);
 	}
 
 DestroyString(Tempstr);
@@ -602,11 +600,11 @@ void HandleSIZE(TSession *Session, char *File)
 struct stat Stat;
 char *Tempstr=NULL;
 
-	if (stat(File,&Stat)==-1) SendLoggedLine("550 ERROR: NO SUCH FILE",Session->ClientSock);
+	if (stat(File,&Stat)==-1) SendLoggedLine(Session, "550 ERROR: NO SUCH FILE");
   else
 	{
 		Tempstr=FormatStr(Tempstr,"213 %d",Stat.st_size);
-		SendLoggedLine(Tempstr, Session->ClientSock);
+		SendLoggedLine(Session, Tempstr);
 	}
 
 DestroyString(Tempstr);
@@ -622,7 +620,7 @@ double Avail=0, Req=0;
 		if (Avail < Req) Tempstr=FormatStr(Tempstr,"501 %.0f bytes available, insufficient space",Avail);
     else Tempstr=FormatStr(Tempstr,"200 %.0f bytes available",Avail);
 
-		SendLoggedLine(Tempstr, Session->ClientSock);
+		SendLoggedLine(Session, Tempstr);
 DestroyString(Tempstr);
 }
 
@@ -633,7 +631,7 @@ double Avail;
 
 		Avail=GetDiskAvailable();
     Tempstr=FormatStr(Tempstr,"213 %.0f bytes (%s) Available",Avail,GetHumanReadableDataQty(Avail,0));
-    SendLoggedLine(Tempstr, Session->ClientSock);
+    SendLoggedLine(Session, Tempstr);
 
 DestroyString(Tempstr);
 }
@@ -642,7 +640,7 @@ void HandleCLNT(TSession *Session, char *Arg)
 {
 SetVar(Session->Vars,"ClientProgram",Arg);
 LogToFile(Settings.LogPath,"Client Program: %s",Arg);
-SendLoggedLine("200 Thanks for sharing that with me", Session->ClientSock);
+SendLoggedLine(Session, "200 Thanks for sharing that with me");
 }
 
 
@@ -654,7 +652,7 @@ int Port;
 
 DecodePORTStr(PortStr,&Address, &Port);
 AddDataConnection(Session, DC_OUTGOING, Address, Port);
-SendLoggedLine("200 OK", Session->ClientSock);
+SendLoggedLine(Session, "200 OK");
 DestroyString(Address);
 }
 
@@ -856,14 +854,14 @@ else
 	//Must be an actual dir for MLSD
 	if ((ListType==LIST_MLSD) && StrLen(Args))
 	{
- 			SendLoggedLine("501 NOT A DIRECTORY", Session->ClientSock);
+ 			SendLoggedLine(Session, "501 NOT A DIRECTORY");
 			return;
 	}
 }
 
 	if (ListType==LIST_STAT)
 	{
-  	SendLoggedLine("211-OK", Session->ClientSock);
+  	SendLoggedLine(Session, "211-OK");
 		S=Session->ClientSock;
 	}
 	else
@@ -873,7 +871,7 @@ else
 		{
 			S=DC->Sock;
 			DC->Output=S;
-  		SendLoggedLine("150 OK Data Connection Established", Session->ClientSock);
+  		SendLoggedLine(Session, "150 OK Data Connection Established");
 		}
 	}
 
@@ -890,11 +888,11 @@ else
     if (DC) CloseDataConnection(Session, DC);
 		Session->DataConnection=NULL;
   }
-	else SendLoggedLine("550 ERROR: CANNOT BUILD DATA CONNECTION", Session->ClientSock);
+	else SendLoggedLine(Session,"550 ERROR: CANNOT BUILD DATA CONNECTION");
 
 	//In all cases this final line goes out the control channel
-  if (ListType ==LIST_STAT) SendLoggedLine("211 END", Session->ClientSock);
-  else SendLoggedLine("250 END", Session->ClientSock);
+  if (ListType ==LIST_STAT) SendLoggedLine(Session,"211 END");
+  else SendLoggedLine(Session,"250 END");
 
   globfree(&myGlob);
 	DestroyString(Pattern);
@@ -905,12 +903,12 @@ else
 void HandleMLST(TSession *Session, char *Pattern)
 {
 
-	if (access(Pattern,F_OK) !=0) SendLoggedLine("501 NO SUCH FILE", Session->ClientSock);
+	if (access(Pattern,F_OK) !=0) SendLoggedLine(Session,"501 NO SUCH FILE");
 	else
 	{
-  SendLoggedLine("250-OK", Session->ClientSock);
+  SendLoggedLine(Session,"250-OK");
   SendDirItemInfo(Session,Session->ClientSock,Pattern, LIST_MLSD);
-  SendLoggedLine("250 End", Session->ClientSock);
+  SendLoggedLine(Session,"250 End");
 	}
 
 }
@@ -933,7 +931,7 @@ struct utimbuf UT;
 			if (utime(Path,&UT)==0) 
 			{
 				Tempstr=MCopyStr(Tempstr,SuccessCode," Modification Time Changed for ",Path,NULL);
-				SendLoggedLine(Tempstr,Session->ClientSock);
+				SendLoggedLine(Session,Tempstr);
 			}
 			else SendErrno(Session, "550","ERROR: Utime failed", errno);
 
@@ -952,11 +950,11 @@ ptr=GetToken(Args," ",&Tempstr,0);
 //if only one arg then send mtime
 if (StrLen(ptr)==0)
 {
-	if (stat(Tempstr,&Stat) !=0) SendLoggedLine("550 ERROR: NO SUCH FILE", Session->ClientSock);
+	if (stat(Tempstr,&Stat) !=0) SendLoggedLine(Session,"550 ERROR: NO SUCH FILE");
 	else
 	{
 		Tempstr=FormatStr(Tempstr,"213 %s",GetDateStrFromSecs("%Y%m%d%H%M%S",Stat.st_mtime,NULL));
-		SendLoggedLine(Tempstr, Session->ClientSock);
+		SendLoggedLine(Session,Tempstr);
 	}
 }
 else HandleSetTime(Session, ptr, Tempstr, "213");
@@ -973,7 +971,7 @@ char *Tempstr=NULL;
 Tempstr=FormatStr(Tempstr,"%d",atoi(Arg));
 SetVar(Session->Vars,"FileTransferRestartPosition",Tempstr);
 Tempstr=FormatStr(Tempstr,"350 Restarting at %d",atoi(Arg));
-SendLoggedLine(Tempstr,Session->ClientSock);
+SendLoggedLine(Session, Tempstr);
 
 DestroyString(Tempstr);
 }
@@ -1019,14 +1017,14 @@ else
 {
 	if (stat(Path,&FStat) != 0)
 	{
-	   SendLoggedLine("550 ERROR: Can't access file",Session->ClientSock);
+	   SendLoggedLine(Session,"550 ERROR: Can't access file");
 	   LogToFile(Settings.LogPath,"GET %s FAILED, No such file",Path);
 		 return;
 	}
 	
 	if (S_ISDIR(FStat.st_mode))
 	{
-	   SendLoggedLine("550 ERROR: Can't Retrieve Directories",Session->ClientSock);
+	   SendLoggedLine(Session,"550 ERROR: Can't Retrieve Directories");
 	   LogToFile(Settings.LogPath,"GET %s FAILED, Is Directory",Path);
 		 return;
 	}
@@ -1036,7 +1034,7 @@ else
 
 if (! InFile)
 {
-   SendLoggedLine("550 ERROR: Can't open file",Session->ClientSock);
+   SendLoggedLine(Session,"550 ERROR: Can't open file");
    LogToFile(Settings.LogPath,"GET %s FAILED",Path);
 	 return;
 }
@@ -1049,7 +1047,7 @@ val=FtpGetLock(Path,InFile->in_fd,READ_LOCK);
 //if there's a mandatory lock on it, fail
 if (val==FLAG_MLOCK)
 {
-   SendLoggedLine("550 ERROR: File is busy, someone is writing to it. Try later.",Session->ClientSock);
+   SendLoggedLine(Session,"550 ERROR: File is busy, someone is writing to it. Try later.");
    LogToFile(Settings.LogPath,"GET %s FAILED, Is Mandatory Locked",Path);
 	 STREAMClose(InFile);
 	 return;
@@ -1060,8 +1058,8 @@ if (val==FLAG_MLOCK)
 //if there's an advisory lock on it, warn
 if (val==FLAG_ALOCK)
 {
-   SendLoggedLine("150-ADVISE: FILE IS LOCKED, you can still read it",Session->ClientSock);
-   SendLoggedLine("150 but it may be garbled if someone is writing to it",Session->ClientSock);
+   SendLoggedLine(Session,"150-ADVISE: FILE IS LOCKED, you can still read it");
+   SendLoggedLine(Session,"150 but it may be garbled if someone is writing to it");
    LogToFile(Settings.LogPath,"ADVISE: File %s Locked",Path);
 }
 
@@ -1071,7 +1069,7 @@ if (val > 0)
 {
 	if (val > FStat.st_size) 
 	{
-		SendLoggedLine("554 ERROR: Bad Restart Position",Session->ClientSock);
+		SendLoggedLine(Session,"554 ERROR: Bad Restart Position");
 	 	STREAMClose(InFile);
 		return;
 	}
@@ -1079,7 +1077,7 @@ STREAMSeek(InFile,val,SEEK_SET);
 }
 
 
-SendLoggedLine("150 OK", Session->ClientSock);
+SendLoggedLine(Session,"150 OK");
 
 DC=OpenDataConnection(Session,0);
 if (DC) 
@@ -1089,6 +1087,8 @@ if (DC)
 	DC->FileName=CopyStr(DC->FileName,Path);
 	DC->Flags |= DC_RETR;
 	Session->DataConnection=NULL;
+	//this could be -1, so check > 0
+	if (Settings.ConfirmTransfer > 0) DC->Hash=HashInit(HashNames[Settings.ConfirmTransfer]);
 	STREAMSetItem(InFile,"DataCon",DC);
 	ListAddItem(Session->Connections,InFile);
 }
@@ -1127,18 +1127,18 @@ int val=0;
 		OutFile=STREAMCreate();
 		PipeSpawnFunction(&OutFile->out_fd,&OutFile->in_fd, NULL, (BASIC_FUNC) UnTarFunc, Path);
 	}
-	else if (Append) OutFile=STREAMOpenFile(Path, O_WRONLY | O_CREAT | O_APPEND);
+	else if (Append) OutFile=STREAMOpenFile(Path, SF_WRONLY | SF_CREAT | SF_APPEND);
 	else if (val > 0) 
 	{
-		OutFile=STREAMOpenFile(Path, O_WRONLY | O_CREAT );
+		OutFile=STREAMOpenFile(Path, SF_WRONLY | SF_CREAT );
 		//Seek to Restart Position
 		STREAMSeek(OutFile,val,SEEK_SET);
 	}
-	else OutFile=STREAMOpenFile(Path, O_WRONLY | O_CREAT | O_TRUNC);
+	else OutFile=STREAMOpenFile(Path, SF_WRONLY | SF_CREAT | SF_TRUNC);
 
 	if (! OutFile)
 	{
- 		SendLoggedLine("550 ERROR: Failed to open file for writing.",Session->ClientSock);
+ 		SendLoggedLine(Session,"550 ERROR: Failed to open file for writing.");
  		LogToFile(Settings.LogPath,"PUT %s FAILED",Path);
 		return;
 	}
@@ -1150,7 +1150,7 @@ int val=0;
 	//if there's a mandatory lock on it, fail
 	if (val==FLAG_MLOCK)
 	{
-   SendLoggedLine("550 ERROR: File is busy, someone is reading/writing it. Try later.",Session->ClientSock);
+   SendLoggedLine(Session,"550 ERROR: File is busy, someone is reading/writing it. Try later.");
    LogToFile(Settings.LogPath,"STOR %s FAILED, Is Mandatory Locks",Path);
 	 STREAMClose(OutFile);
 	 return;
@@ -1165,23 +1165,29 @@ int val=0;
 	//if there's a mandatory lock on it, fail
 		if (val==FLAG_ALOCK)
 		{
-  	 SendLoggedLine("150-ADVISE: FILE IS LOCKED, you can still write it",Session->ClientSock);
-  	 SendLoggedLine("150 but you may ruin someone's day",Session->ClientSock);
+  	 SendLoggedLine(Session,"150-ADVISE: FILE IS LOCKED, you can still write it");
+  	 SendLoggedLine(Session,"150 but you may ruin someone's day");
   	 LogToFile(Settings.LogPath,"ADVISE: File %s Locked",Path);
 		}
-		else SendLoggedLine("150 OK Data Connection Established", Session->ClientSock);
+		else SendLoggedLine(Session,"150 OK Data Connection Established");
 
 		DC->Input=DC->Sock;
 		DC->Output=OutFile;
 		Session->DataConnection=NULL;
 		STREAMSetItem(DC->Input,"DataCon",DC);
+
 		ListAddItem(Session->Connections,DC->Input);
 
   	DC->FileName=CopyStr(DC->FileName,Path);
   	DC->Flags |= DC_STOR;
 		DC->BytesSent=(double) STREAMTell(OutFile);
+		if (DC->BytesSent==0)
+		{
+		//this could be -1, so check > 0
+		if (Settings.ConfirmTransfer > 0) DC->Hash=HashInit(HashNames[Settings.ConfirmTransfer]);
+		}
   }
-	else SendLoggedLine("500 Cannot build Data Connection", Session->ClientSock);
+	else SendLoggedLine(Session,"500 Cannot build Data Connection");
 
 }
 
@@ -1195,11 +1201,11 @@ STREAM *InFile;
 LogToFile(Settings.LogPath,"RNFR %s",Path);
 if (access(Path,F_OK) !=0)
 {
-   SendLoggedLine("550 ERROR: rename from failed.",Session->ClientSock);
+   SendLoggedLine(Session,"550 ERROR: rename from failed.");
    LogToFile(Settings.LogPath,"RNFR %s FAILED",Path);
 }
 
-  SendLoggedLine("350 OK", Session->ClientSock);
+  SendLoggedLine(Session,"350 OK");
   SetVar(Session->Vars,"RenameFromPath",Path);
 
 }
@@ -1213,15 +1219,15 @@ char *Tempstr=NULL, *HookArgs=NULL, *ptr;
 LogToFile(Settings.LogPath,"RNTO %s",Path);
 ptr=GetVar(Session->Vars,"RenameFromPath");
 
-if (! StrLen(ptr)) SendLoggedLine("550 ERROR: RNFR must be used first to set file to be renamed", Session->ClientSock);
+if (! StrLen(ptr)) SendLoggedLine(Session,"550 ERROR: RNFR must be used first to set file to be renamed");
 else if (rename(ptr,Path)==0)
 {
-  SendLoggedLine("250 OK", Session->ClientSock);
+  SendLoggedLine(Session,"250 OK");
 	HookArgs=MCopyStr(HookArgs,"Rename"," '",ptr,"' '",Path,"'",NULL);
 	Tempstr=IPCRequest(Tempstr, Session, "RunHook", HookArgs);
 	UnsetVar(Session->Vars,"RenameFromPath");
 }
-else SendLoggedLine("550 ERROR: Rename Failed", Session->ClientSock);
+else SendLoggedLine(Session,"550 ERROR: Rename Failed");
 
 DestroyString(Tempstr);
 DestroyString(HookArgs);
@@ -1233,14 +1239,14 @@ void HandleMODE(TSession *Session, char *Mode)
 if (strcasecmp(Mode,"Z")==0) 
 {
 	Session->Flags |= SESSION_COMPRESSED_TRANSFERS;
-  SendLoggedLine("200 Compressed mode active", Session->ClientSock);
+  SendLoggedLine(Session,"200 Compressed mode active");
 }
 else if (strcasecmp(Mode,"S")==0) 
 {
 	Session->Flags &= ~SESSION_COMPRESSED_TRANSFERS;
-  SendLoggedLine("200 STREAM mode active", Session->ClientSock);
+  SendLoggedLine(Session,"200 STREAM mode active");
 }
-else SendLoggedLine("550 ERROR: Unknown Transfer Mode", Session->ClientSock);
+else SendLoggedLine(Session,"550 ERROR: Unknown Transfer Mode");
 
 }
 
@@ -1250,14 +1256,14 @@ void HandleSTRU(TSession *Session, char *Mode)
 if (strcasecmp(Mode,"F")==0) 
 {
 	Session->Flags &= ~SESSION_TAR_STRUCTURE;
-  SendLoggedLine("200 Standard file structure active", Session->ClientSock);
+  SendLoggedLine(Session,"200 Standard file structure active");
 }
 else if (strcasecmp(Mode,"T")==0) 
 {
 	Session->Flags |= SESSION_TAR_STRUCTURE;
-  SendLoggedLine("200 'TAR' file structure active", Session->ClientSock);
+  SendLoggedLine(Session,"200 'TAR' file structure active");
 }
-else SendLoggedLine("550 ERROR: Unknown file structure", Session->ClientSock);
+else SendLoggedLine(Session,"550 ERROR: Unknown file structure");
 
 }
 
@@ -1318,9 +1324,9 @@ if (StrLen(Mod)==0)
 	val=umask(0);
 	umask(val);
 	Mod=FormatStr(Mod,"250 %o (current umask)",val);
-	SendLoggedLine(Mod,Session->ClientSock);
+	SendLoggedLine(Session,Mod);
 }
-else if (umask(strtol(Mod,NULL,8))==0) SendLoggedLine("250 Umask changed",Session->ClientSock);
+else if (umask(strtol(Mod,NULL,8))==0) SendLoggedLine(Session,"250 Umask changed");
 else SendErrno(Session, "550", "ERROR: Umask change failed", errno);
 
 DestroyString(Mod);
@@ -1339,8 +1345,9 @@ if (StrLen(ptr) > 24)
 }
 else ptr=GetToken(ptr," ",&Path,0);
 
-if (! StrLen(ptr)) SendLoggedLine("550 ERROR: UTIME Parse failure",Session->ClientSock);
-else HandleSetTime(Session, Path, Token, "250");
+//if (! StrLen(ptr)) SendLoggedLine(Session,"550 ERROR: UTIME Parse failure");
+//else 
+HandleSetTime(Session, Path, Token, "250");
 
 DestroyString(Token);
 DestroyString(Path);
@@ -1353,7 +1360,7 @@ char *Tempstr=NULL;
 
 //Timezone variable is in seconds!
 Tempstr=FormatStr(Tempstr,"250 UTC%+d",timezone/3600);
-SendLoggedLine(Tempstr,Session->ClientSock);
+SendLoggedLine(Session,Tempstr);
 
 DestroyString(Tempstr);
 }
@@ -1365,7 +1372,7 @@ char *Tempstr=NULL, *Info=NULL;
 
 Tempstr=IPCRequest(Tempstr, Session, "Who", "");
 Info=MCopyStr(Info,"250 ",Tempstr,NULL);
-SendLoggedLine(Info,Session->ClientSock);
+SendLoggedLine(Session,Info);
 
 DestroyString(Tempstr);
 DestroyString(Info);
@@ -1379,7 +1386,7 @@ char *Tempstr=NULL, *Info=NULL;
 if (! StrLen(Args)) Tempstr=CopyStr(Tempstr, GetDateStr("%c %Z",NULL));
 else Tempstr=CopyStr(Tempstr, GetDateStr(Args,NULL));
 Info=MCopyStr(Info,"250 ",Tempstr,NULL);
-SendLoggedLine(Info,Session->ClientSock);
+SendLoggedLine(Session,Info);
 
 DestroyString(Tempstr);
 DestroyString(Info);
@@ -1387,14 +1394,23 @@ DestroyString(Info);
 
 void HandleSITE_PSWD(TSession *Session, char *Args, int RequireCurrPassword)
 {
-char *OldPass=NULL, *NewPass=NULL, *ptr;
+char *OldPass=NULL, *NewPass=NULL, *Tempstr=NULL, *ptr;
 
 ptr=Args;
 if (RequireCurrPassword) ptr=GetToken(ptr,"\\S",&OldPass,GETTOKEN_QUOTES);
 ptr=GetToken(ptr,"\\S",&NewPass,GETTOKEN_QUOTES);
 
-UpdateNativeFile(Settings.AuthFile, Session->User, NULL, NewPass, NULL, NULL, NULL);
+if (StrLen(NewPass) > 0) 
+{
+	Tempstr=MCopyStr(Tempstr,Session->User," ",NewPass,NULL);
+	Tempstr=IPCRequest(Tempstr, Session, "NewPassword", Tempstr);
+	Tempstr=CopyStr(Tempstr,"250 Password Updated");
+}
+else Tempstr=CopyStr(Tempstr,"550 Blank Passwords not allowed");
 
+SendLoggedLine(Session,Tempstr);
+
+DestroyString(Tempstr);
 DestroyString(OldPass);
 DestroyString(NewPass);
 }
@@ -1422,9 +1438,9 @@ else if (strcasecmp(Tempstr,"IDLE")==0)
 {
 	Settings.DefaultIdle=atoi(ptr);
 	Tempstr=FormatStr(Tempstr,"211 Idle timeout set to %d secs",Settings.DefaultIdle);
-	SendLoggedLine(Tempstr,Session->ClientSock);
+	SendLoggedLine(Session,Tempstr);
 }
-else SendLoggedLine("500 Command not recognized",Session->ClientSock);
+else SendLoggedLine(Session,"500 Command not recognized");
 
 DestroyString(Tempstr);
 }
@@ -1438,23 +1454,23 @@ char *Tempstr=NULL;
 char *Features[]={"ALLO","AVBL","CLNT","DSIZ","MDTM","MLSD","MLST type*;size*;modify*;","PASV","REST STREAM","PASV","REIN","RDMA","SITE CHMOD","SITE IDLE","SITE SYMLINK","SITE PROXY","SITE UMASK","SITE UTIME","SITE ZONE","SITE TIME","SIZE","STRU F;T","MD5","XMD5","XCRC","XSHA","XSHA1","XSHA256","XSHA512",NULL};
 int i;
 
-SendLoggedLine("211-Feature listing follows",Session->ClientSock);
+SendLoggedLine(Session,"211-Feature listing follows");
 for (i=0; Features[i] !=NULL; i++)
 {
 Tempstr=MCopyStr(Tempstr," ",Features[i],NULL);
-SendLoggedLine(Tempstr,Session->ClientSock);
+SendLoggedLine(Session,Tempstr);
 }
 
-if (DataProcessorAvailable("compression","zlib")) SendLoggedLine(" MODE Z",Session->ClientSock);
+if (DataProcessorAvailable("compression","zlib")) SendLoggedLine(Session," MODE Z");
 
 Tempstr=CopyStr(Tempstr," HASH ");
 for (i=0; HashNames[i] !=NULL; i++)
 {
 Tempstr=MCatStr(Tempstr,HashNames[i],";",NULL);
 }
-SendLoggedLine(Tempstr,Session->ClientSock);
+SendLoggedLine(Session,Tempstr);
 
-SendLoggedLine("211 End",Session->ClientSock);
+SendLoggedLine(Session,"211 End");
 
 DestroyString(Tempstr);
 }
@@ -1465,29 +1481,29 @@ void HandleSTAT(TSession *Session)
 char *Tempstr=NULL;
 
 Tempstr=MCopyStr(Tempstr,"211-Status for user ",Session->User," from ",Session->ClientIP,":",NULL);
-SendLoggedLine(Tempstr,Session->ClientSock);
+SendLoggedLine(Session,Tempstr);
 
 Tempstr=MCopyStr(Tempstr,"    Connected to: ",Session->DestIP,NULL);
-SendLoggedLine(Tempstr,Session->ClientSock);
+SendLoggedLine(Session,Tempstr);
 
 if (Session->Flags & SESSION_ASCII_TRANSFERS) Tempstr=CopyStr(Tempstr,"    TransferType: ASCII");
 else Tempstr=CopyStr(Tempstr,"    TransferType: BINARY");
-SendLoggedLine(Tempstr,Session->ClientSock);
+SendLoggedLine(Session,Tempstr);
 
 if (Session->Flags & SESSION_COMPRESSED_TRANSFERS) Tempstr=CopyStr(Tempstr,"    TransferMode: Z (Zlib Compressed)");
 else Tempstr=CopyStr(Tempstr,"    TransferMode: S (Stream)");
-SendLoggedLine(Tempstr,Session->ClientSock);
+SendLoggedLine(Session,Tempstr);
 
 Tempstr=FormatStr(Tempstr,"    Session timeout: %d seconds",Settings.DefaultIdle);
-SendLoggedLine(Tempstr,Session->ClientSock);
+SendLoggedLine(Session,Tempstr);
 
 if (Settings.MaxFileSize > 0)
 {
 Tempstr=FormatStr(Tempstr,"    Max File Size: %d bytes",Settings.MaxFileSize);
-SendLoggedLine(Tempstr,Session->ClientSock);
+SendLoggedLine(Session,Tempstr);
 }
 
-SendLoggedLine("211 End",Session->ClientSock);
+SendLoggedLine(Session,"211 End");
 STREAMFlush(Session->ClientSock);
 
 DestroyString(Tempstr);
@@ -1544,40 +1560,45 @@ if (strcasecmp(Token,"Z")==0)
 	{
 		ptr=GetToken(ptr,"\\S",&Token,0);
 		SetVar(Session->Vars,"Opt:Mode Z:Level",Token);
-		SendLoggedLine("200 Option set",Session->ClientSock); 
+		SendLoggedLine(Session,"200 Option set");
 	}
-	else SendLoggedLine("501 ERROR: Not Supported",Session->ClientSock); 
+	else SendLoggedLine(Session,"501 ERROR: Not Supported");
 
 }
-else SendLoggedLine("501 ERROR: Not Supported",Session->ClientSock); 
+else SendLoggedLine(Session,"501 ERROR: Not Supported"); 
 
 DestroyString(OptName);
 DestroyString(Token);
 }
 
 
-void HandleHashOPTS(TSession *Session, char *Args)
+int HandleHashOPTS(TSession *Session, char *ArgName, char *Args)
 {
 char *Token=NULL, *ptr;
+int HashID=0;
 
+	//if no args given, then report current value
 	if (StrLen(Args)==0) 
 	{
-		ptr=GetVar(Session->Vars,"Opt:HASH");
+		ptr=GetVar(Session->Vars,ArgName);
 		Token=MCopyStr(Token,"200 ",ptr,NULL);
-		SendLoggedLine(Token,Session->ClientSock); 
+		SendLoggedLine(Session,Token);
 	}
 	else
 	{
 		ptr=GetToken(Args,"\\S",&Token,0);
-		if (MatchTokenFromList(Token,HashNames,0) > -1)
+		HashID=MatchTokenFromList(Token,HashNames,0); 
+		if (HashID > -1)
 		{
-			SetVar(Session->Vars,"Opt:HASH",Token);
-			SendLoggedLine("200 Option set",Session->ClientSock); 
+			SetVar(Session->Vars, ArgName, Token);
+			SendLoggedLine(Session,"200 Option set");
 		}
-		else SendLoggedLine("501 ERROR: Not Supported",Session->ClientSock); 
+		else SendLoggedLine(Session,"501 ERROR: Not Supported");
 	}
 
 DestroyString(Token);
+
+return(HashID);
 }
 
 
@@ -1590,10 +1611,10 @@ ptr=GetToken(Args,"\\S",&Token,0);
 if (StrLen(Token))
 {
 if (strcasecmp(Token,"MODE")==0) HandleModeOPTS(Session,ptr);
-else if (strcasecmp(Token,"HASH")==0) HandleHashOPTS(Session,ptr);
-else if (strcasecmp(Token,"utf8")==0) SendLoggedLine("501 ERROR: Not Supported",Session->ClientSock); 
-else SendLoggedLine("501 ERROR: UNKNOWN OPTION",Session->ClientSock); 
-
+else if (strcasecmp(Token,"HASH")==0) HandleHashOPTS(Session,"Opt:HASH",ptr);
+else if (strcasecmp(Token,"TCONF")==0) Settings.ConfirmTransfer=HandleHashOPTS(Session,"Opt:TCONF",ptr);
+else if (strcasecmp(Token,"utf8")==0) SendLoggedLine(Session,"501 ERROR: Not Supported");
+else SendLoggedLine(Session,"501 ERROR: UNKNOWN OPTION");
 }
 
 DestroyString(Token);
@@ -1699,13 +1720,13 @@ case CMD_HASH:
 	HandleHASH(Session, val, Arg, 0, 0); 
 break;
 case CMD_OPTS: HandleOPTS(Session, Arg); break;
-case CMD_NOOP: SendLoggedLine("200 OK",Session->ClientSock); break;
+case CMD_NOOP: SendLoggedLine(Session,"200 OK"); break;
 case CMD_QUIT: HandleQUIT(Session); break;
 
 case CMD_DENIED:
 default: 
 	Tempstr=FormatStr(Tempstr, "500 ERROR: Unrecognized command '%s'",Command);
-	SendLoggedLine(Tempstr,Session->ClientSock);
+	SendLoggedLine(Session,Tempstr);
 	LogToFile(Settings.LogPath,"500 ERROR: Unrecognized command '%s' '%s'",Command,Arg);
 	 break;
 

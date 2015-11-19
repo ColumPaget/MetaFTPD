@@ -86,7 +86,7 @@ do
 {
    Tempstr=STREAMReadLine(Tempstr,Session->ProxySock);
 	StripTrailingWhitespace(Tempstr);
-   SendLoggedLine(Tempstr,Session->ClientSock);
+   SendLoggedLine(Session,Tempstr);
 } while ( (Tempstr[3]=='-') || (isspace(Tempstr[0])) );
 
 STREAMFlush(Session->ProxySock);
@@ -171,11 +171,11 @@ int Port=0;
 if (NegotiateDataConnection(Session->ProxySock, Session->LocalIP, Session->ProxyDataConnection))
 {
   Session->ProxyDataConnection->Flags |= DC_PROXY;
-  SendLoggedLine("200 OK", Session->ClientSock);
+  SendLoggedLine(Session,"200 OK");
 }
 else 
 {
-	SendLoggedLine("451 ERROR Can't open data connection",Session->ClientSock);
+	SendLoggedLine(Session,"451 ERROR Can't open data connection");
 }
 
 DestroyString(Tempstr);
@@ -330,7 +330,7 @@ case CMD_REIN:
 break;
 
 default:
-      SendLoggedLine("500 ERROR: Command not recognized",Session->ClientSock);
+      SendLoggedLine(Session,"500 ERROR: Command not recognized");
 break;
 }
 
@@ -344,7 +344,7 @@ int fd, result=FALSE;
 
 if (StrLen(Host)==0) 
 {
-	SendLoggedLine("421 ERROR: Proxy cannot connect. No destination host.",Session->ClientSock);
+	SendLoggedLine(Session,"421 ERROR: Proxy cannot connect. No destination host.");
 }
 else 
 {
@@ -353,7 +353,7 @@ Tempstr=IPCRequest(Tempstr, Session, "GetIP", Host);
    if (strcmp(Tempstr,"DENIED")==0)
    {
       Tempstr=FormatStr(Tempstr,"421 ERROR: Proxy connection denied for host %s:%d",Host,Port);
-      SendLoggedLine(Tempstr,Session->ClientSock);
+      SendLoggedLine(Session,Tempstr);
 
    }
    else
@@ -362,7 +362,7 @@ Tempstr=IPCRequest(Tempstr, Session, "GetIP", Host);
       if (fd==-1)
       {
       	Tempstr=FormatStr(Tempstr,"421 ERROR: Proxy cannot connect to host %s:%d",Host,Port);
-        SendLoggedLine(Tempstr,Session->ClientSock);
+        SendLoggedLine(Session,Tempstr);
       }
 			else
 			{

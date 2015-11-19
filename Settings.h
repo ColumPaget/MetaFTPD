@@ -36,6 +36,7 @@ char *UpdatePasswordType;
 ListNode *VirtualHosts;
 int DefaultIdle;
 int MaxIdle;
+int ConfirmTransfer;
 double MaxFileSize;
 } TSettings;
 

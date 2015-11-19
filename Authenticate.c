@@ -15,6 +15,7 @@
 
 #ifdef HAVE_LIBPAM
 #include <security/pam_appl.h>
+static pam_handle_t *pamh=NULL;
 #endif
 
 #define USER_UNKNOWN -1
@@ -213,44 +214,87 @@ return(PAM_SUCCESS);
 }
 
 
+int PAMStart(TSession *Session, const char *User)
+{
+static struct pam_conv  PAMConvStruct = {PAMConvFunc, NULL };
+const char *PAMConfigs[]={"metaftpd","ftp","other",NULL};
+int result=PAM_PERM_DENIED, i;
+
+PAMConvStruct.appdata_ptr=(void *)Session->Passwd;
+
+	for (i=0; (PAMConfigs[i] != NULL) && (result != PAM_SUCCESS); i++)
+	{
+		result=pam_start(PAMConfigs[i],User,&PAMConvStruct,&pamh);
+	}	
+
+	if (result==PAM_SUCCESS)
+	{
+	pam_set_item(pamh,PAM_RUSER,Session->User);
+	if (StrLen(Session->ClientHost) > 0) pam_set_item(pamh,PAM_RHOST,Session->ClientHost);
+	else if (StrLen(Session->ClientIP) > 0) pam_set_item(pamh,PAM_RHOST,Session->ClientIP);
+	else pam_set_item(pamh,PAM_RHOST,"");
+	return(TRUE);
+	}
+
+	return(FALSE);
+}
+
+
+
 int AuthPAM(TSession *Session)
 {
-static pam_handle_t *pamh;
-static struct pam_conv  PAMConvStruct = {PAMConvFunc, NULL };
 int result;
 
 AuthenticationsTried=CatStr(AuthenticationsTried,"pam ");
-PAMConvStruct.appdata_ptr=(void *)Session->Passwd;
 
 
-if(
-		(pam_start("ftp",Session->User,&PAMConvStruct,&pamh) !=PAM_SUCCESS) &&
-		(pam_start("other",Session->User,&PAMConvStruct,&pamh) !=PAM_SUCCESS)
-	)
+if(! PAMStart(Session, Session->User))
 	{
 		LogToFile(Settings.ServerLogPath,"PAM: No such user %s",Session->User);
   	return(USER_UNKNOWN);
 	}
 
 /* set the credentials for the remote user and remote host */
-pam_set_item(pamh,PAM_RUSER,Session->User);
-if (StrLen(Session->ClientHost) > 0) pam_set_item(pamh,PAM_RHOST,Session->ClientHost);
-else if (StrLen(Session->ClientIP) > 0) pam_set_item(pamh,PAM_RHOST,Session->ClientIP);
-else pam_set_item(pamh,PAM_RHOST,"");
-
 
 result=pam_authenticate(pamh,0);
-
-pam_end(pamh,PAM_SUCCESS);
-
 
 
 if (result==PAM_SUCCESS)
 {
+	Session->Flags |= SESSION_PAM;
 	Session->RealUser=CopyStr(Session->RealUser,Session->User);
 	return(TRUE);
 }
 else return(FALSE);
+}
+
+
+
+int AuthPAMCheckSession(TSession *Session)
+{
+if (! pamh)
+{
+	if (! PAMStart(Session, Session->RealUser)) return(FALSE);
+}
+fprintf(stderr,"APCS!\n");
+
+if (pam_acct_mgmt(pamh, 0)==PAM_SUCCESS) 
+{
+	pam_open_session(pamh, 0);
+	return(TRUE);
+}
+return(FALSE);
+}
+
+
+
+void AuthPAMClose()
+{
+	if (pamh)
+	{
+	pam_close_session(pamh, 0);
+	pam_end(pamh,PAM_SUCCESS);
+	}
 }
 #endif
 
@@ -303,10 +347,10 @@ int RetVal=FALSE;
 }
 
 
-int CheckNativeFileHashedPassword(char *PasswordType, char *Password, char *ProvidedPass)
+int CheckNativeFileHashedPassword(const char *PasswordType, const char *Name, const char *Salt, const char *Password, const char *ProvidedPass)
 {
 char *HashTypes[]={"md5","sha1","sha256","sha512","whirlpool","jh-224","jh-256","jh-384","jh-512",NULL};
-char *Digest=NULL;
+char *Digest=NULL, *Tempstr=NULL;
 int RetVal=FALSE;
 int i;
 
@@ -314,18 +358,21 @@ for (i=0; (! RetVal) && (HashTypes[i] !=NULL); i++)
 {
 if (strcmp(PasswordType,HashTypes[i])==0) 
 {
-	HashBytes(&Digest,HashTypes[i],ProvidedPass,StrLen(ProvidedPass),ENCODE_HEX);
+	Tempstr=MCopyStr(Tempstr,Name,Salt,ProvidedPass,NULL);
+	HashBytes(&Digest,HashTypes[i],Tempstr,StrLen(Tempstr),ENCODE_HEX);
 	if (strcasecmp(Password,Digest)==0) RetVal=TRUE;
+LogToFile(Settings.ServerLogPath,"PASS: [%s] [%s] [%s]",Password,Digest,ProvidedPass);
 }
 }
 
+DestroyString(Tempstr);
 DestroyString(Digest);
 return(RetVal);
 }
 
 
 
-int CheckNativeFilePassword(char *PasswordType, char *Password, char *ProvidedPass, TSession *Session)
+int CheckNativeFilePassword(const char *PasswordType, const char *Name, const char *Salt, const char *Password, const char *ProvidedPass, TSession *Session)
 {
 if (strcmp(PasswordType,"null")==0) return(TRUE);
 
@@ -336,7 +383,7 @@ if (strcmp(PasswordType,"plain")==0)
 }
 
 if (Session && strcmp(PasswordType,"challenge")==0) return(CheckNativeFileChallengePassword(Session->Challenge, Password, ProvidedPass));
-return(CheckNativeFileHashedPassword(PasswordType, Password, ProvidedPass));
+return(CheckNativeFileHashedPassword(PasswordType, Name, Salt, Password, ProvidedPass));
 }
 
 
@@ -344,7 +391,7 @@ int AuthNativeFile(TSession *Session)
 {
 STREAM *S;
 char *Tempstr=NULL,*ptr;
-char *Name=NULL, *Pass=NULL, *RealUser=NULL, *HomeDir=NULL, *PasswordType=NULL;
+char *Name=NULL, *Pass=NULL, *Salt=NULL, *RealUser=NULL, *HomeDir=NULL, *PasswordType=NULL;
 int RetVal=USER_UNKNOWN;
 struct passwd *pass_struct;
 
@@ -365,6 +412,7 @@ while (Tempstr)
   StripTrailingWhitespace(Tempstr);
 	ptr=GetToken(Tempstr,":",&Name,0);
 	ptr=GetToken(ptr,":",&PasswordType,0);
+	ptr=GetToken(ptr,":",&Salt,0);
 	ptr=GetToken(ptr,":",&Pass,0);
 	ptr=GetToken(ptr,":",&RealUser,0);
 	ptr=GetToken(ptr,":",&HomeDir,0);
@@ -372,7 +420,7 @@ while (Tempstr)
   if (strcasecmp(Name,Session->User)==0)
   {
 		RetVal=FALSE;
-		if (CheckNativeFilePassword(PasswordType,Pass,Session->Passwd,Session))
+		if (CheckNativeFilePassword(PasswordType,Name,Salt,Pass,Session->Passwd,Session))
     {
 			RetVal=TRUE;
 			Session->RealUser=CopyStr(Session->RealUser,RealUser);	
@@ -394,6 +442,10 @@ STREAMClose(S);
 DestroyString(Tempstr);
 DestroyString(Name);
 DestroyString(Pass);
+DestroyString(Salt);
+DestroyString(RealUser);
+DestroyString(HomeDir);
+DestroyString(PasswordType);
 
 return(RetVal);
 }
@@ -438,12 +490,12 @@ DestroyString(Token);
 
 
 
-int UpdateNativeFile(char *Path, char *Name, char *iPassType, char *Pass, char *iHomeDir, char *iRealUser, char *iArgs)
+int UpdateNativeFile(const char *Path, const char *Name, const char *iPassType, const char *Pass, const char *iHomeDir, const char *iRealUser, const char *iArgs)
 {
 STREAM *S;
 ListNode *Entries;
 char *Tempstr=NULL, *Token=NULL, *ptr;
-char *PassType=NULL, *HomeDir=NULL, *RealUser=NULL, *Args=NULL;
+char *PassType=NULL, *HomeDir=NULL, *RealUser=NULL, *Args=NULL, *Salt=NULL;
 ListNode *Curr;
 int RetVal=ERR_FILE;
 
@@ -460,7 +512,9 @@ if (S)
 		if (strcmp(Token,Name) !=0) ListAddItem(Entries,CopyStr(NULL,Tempstr));	
 		else 
 		{
+			StripTrailingWhitespace(Tempstr);
 			ptr=GetToken(ptr,":",&PassType,0);
+			ptr=GetToken(ptr,":",&Salt,0);
 			ptr=GetToken(ptr,":",&Token,0);
 			ptr=GetToken(ptr,":",&RealUser,0);
 			ptr=GetToken(ptr,":",&HomeDir,0);
@@ -501,22 +555,24 @@ if (S)
 		Token=CopyStr(Token,"");
 		if (strcmp(PassType,"plain") == 0) Token=CopyStr(Token,Pass);
 		else if (strcmp(PassType,"challenge") == 0) Token=CopyStr(Token,Pass);
-		else HashBytes(&Token, PassType, Pass, StrLen(Pass), ENCODE_HEX);
-
-		Tempstr=MCopyStr(Tempstr,Name,":",PassType,":",Token,":",RealUser,":",HomeDir,":",Args,"\n",NULL);
+		else 
+		{
+		  //Generate a new salt
+			GenerateRandomBytes(&Salt,20,ENCODE_HEX);
+			Tempstr=MCopyStr(Tempstr,Name,Salt,Pass,NULL);
+			HashBytes(&Token, PassType, Tempstr, StrLen(Tempstr), ENCODE_HEX);
+		}
+		Tempstr=MCopyStr(Tempstr,Name,":",PassType,":",Salt,":",Token,":",RealUser,":",HomeDir,":",Args,"\n",NULL);
 	
 		STREAMWriteLine(Tempstr,S);
-
-		SwitchUser(RealUser);
-		mkdir(HomeDir,0770);
 	}
 
 	STREAMClose(S);
 	RetVal=ERR_OKAY;
 }
-else printf("ERROR: failed to open authorization file %s for update\n",Path);
 
 DestroyString(Args);
+DestroyString(Salt);
 DestroyString(HomeDir);
 DestroyString(RealUser);
 DestroyString(PassType);
@@ -526,6 +582,8 @@ ListDestroy(Entries,DestroyString);
 
 return(RetVal);
 }
+
+
 	
 int Authenticate(TSession *Session, int AuthType)
 {
@@ -547,9 +605,20 @@ AuthenticationsTried=CopyStr(AuthenticationsTried,"");
 
 if (! CheckServerAllowDenyLists(Session->User)) return(FALSE);
 
+//check for this as it changes behavior of other auth types
+ptr=GetToken(Settings.AuthMethods,",",&Token,0);
+while (ptr) 
+{
+	if (strcasecmp(Token,"session-pam")==0) Session->Flags |= SESSION_PAM;
+	ptr=GetToken(ptr,",",&Token,0);
+}
+
+
 ptr=GetToken(Settings.AuthMethods,",",&Token,0);
 while (ptr)
 {
+
+fprintf(stderr,"%s\n",Token);
 
 	if (strcasecmp(Token,"native")==0) result=AuthNativeFile(Session);
 	else if (strcasecmp(Token,"shadow")==0) result=AuthShadowFile(Session);
@@ -598,6 +667,20 @@ if (result)
 			result=FALSE;
 		}
 	}
+}
+
+fprintf(stderr,"PS2! %d\n",Session->Flags & SESSION_PAM);
+
+//check again, because may have changed in above block
+if (result && (Session->Flags & SESSION_PAM))
+{
+#ifdef HAVE_LIBPAM
+	if (! AuthPAMCheckSession(Session))
+	{
+		LogToFile(Settings.ServerLogPath,"PAM Account invalid for '%s'. Login Denied",Session->User);
+		result=FALSE;
+	}
+#endif
 }
 
 

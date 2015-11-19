@@ -38,7 +38,7 @@ while (Curr)
 	Tempstr=MCatStr(Tempstr," ",Proc->User,NULL);
 	Curr=ListGetNext(Curr);
 }
-SendLoggedLine(Tempstr,S);
+//SendLoggedLine(Tempstr,S);
 
 DestroyString(Tempstr);
 }
@@ -91,13 +91,19 @@ DestroyString(Type);
 
 char *IPCProcessRequest(char *RetStr, TSessionProcess *Proc, char *InfoType, char *Arg)
 {
-char *Tempstr=NULL;
+char *Tempstr=NULL, *Token=NULL, *ptr;
 
 Tempstr=CopyStr(RetStr,"");
 
 if (strcmp(InfoType,"GetIP")==0) Tempstr=MCopyStr(Tempstr,LookupHostIP(Arg),"\n",NULL);
 else if (strcmp(InfoType,"GetUserName")==0) Tempstr=MCopyStr(Tempstr,GetUserName(atoi(Arg)),"\n",NULL);
 else if (strcmp(InfoType,"GetGroupName")==0) Tempstr=MCopyStr(Tempstr,GetGroupName(atoi(Arg)),"\n",NULL);
+else if (strcmp(InfoType,"NewPassword")==0) 
+{
+	ptr=GetToken(Arg,"\\S",&Token,GETTOKEN_QUOTES);
+  UpdateNativeFile(Settings.AuthFile, Token, NULL, ptr, NULL, NULL, NULL);
+	Tempstr=CopyStr(Tempstr,"OKAY\n");
+}
 else if (strcmp(InfoType,"RunHook")==0) 
 {
 	RunHook(Arg);
@@ -116,6 +122,7 @@ else if (strcmp(InfoType,"LoggedOn")==0)
 //else if (strcmp(Token,"Who")==0) SendWho(Proc->S);
 else Tempstr=CopyStr(Tempstr,"ERROR: Unknown Request\n");
 
+DestroyString(Token);
 return(Tempstr);
 }
 
@@ -164,7 +171,7 @@ Tempstr=MCopyStr(Tempstr,InfoType, ": ",Arg,"\n",NULL);
 
 
 //ptr must == NULL here, because we use it to decide if we
-//got a carched value
+//got a cached value
 ptr=NULL;
 
 if (strncmp(InfoType,"Get",3) ==0) ptr=GetVar(IPCCache,Tempstr);

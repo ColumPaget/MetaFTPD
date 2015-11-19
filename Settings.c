@@ -3,8 +3,8 @@
 
 TSettings Settings;
 
-const char *ArgStrings[]={"-proxy","-chhome","-chroot","-chshare","-port","-p","-4","-nodemon","-I","-inetd","-f","-A","-a","-allowusers","-denyusers","-nopasv","-dclow","-dchigh","-logfile","-l","-syslog","-idle","-maxidle","-mlocks","-alocks","-malocks","-i","-bindaddress","-dcus","-dcds","-update-pass","-?","-help","--help","-version","--version",NULL};
-typedef enum {ARG_PROXY,ARG_CHHOME,ARG_CHROOT,ARG_CHSHARE,ARG_PORT,ARG_PORT2,ARG_IPV4,ARG_NODEMON,ARG_INETD,ARG_INETD2,ARG_CONFIG_FILE, ARG_AUTH_METHODS, ARG_AUTH_FILE, ARG_ALLOWUSERS,ARG_DENYUSERS,ARG_NOPASV, ARG_DCLOW,ARG_DCHIGH,ARG_LOGFILE,ARG_LOGFILE2,ARG_SYSLOG,ARG_IDLE,ARG_MAXIDLE,ARG_MLOCKS,ARG_ALOCKS,ARG_MALOCKS,ARG_INTERFACE,ARG_BINDADDRESS,ARG_DCUPSCRIPT, ARG_DCDOWNSCRIPT,ARG_UPDATE_PASSWORD,ARG_HELP1,ARG_HELP2,ARG_HELP3,ARG_VERSION,ARG_VERSION2} EArgStrings;
+const char *ArgStrings[]={"-proxy","-chhome","-chroot","-chshare","-port","-p","-4","-nodemon","-I","-inetd","-f","-A","-a","-allowusers","-denyusers","-nopasv","-dclow","-dchigh","-logfile","-l","-syslog","-idle","-maxidle","-mlocks","-alocks","-malocks","-i","-bindaddress","-dcus","-dcds","-update-pass","-confirm-transfer","-?","-help","--help","-version","--version",NULL};
+typedef enum {ARG_PROXY,ARG_CHHOME,ARG_CHROOT,ARG_CHSHARE,ARG_PORT,ARG_PORT2,ARG_IPV4,ARG_NODEMON,ARG_INETD,ARG_INETD2,ARG_CONFIG_FILE, ARG_AUTH_METHODS, ARG_AUTH_FILE, ARG_ALLOWUSERS,ARG_DENYUSERS,ARG_NOPASV, ARG_DCLOW,ARG_DCHIGH,ARG_LOGFILE,ARG_LOGFILE2,ARG_SYSLOG,ARG_IDLE,ARG_MAXIDLE,ARG_MLOCKS,ARG_ALOCKS,ARG_MALOCKS,ARG_INTERFACE,ARG_BINDADDRESS,ARG_DCUPSCRIPT, ARG_DCDOWNSCRIPT,ARG_UPDATE_PASSWORD,ARG_CONFIRM_TRANSFER,ARG_HELP1,ARG_HELP2,ARG_HELP3,ARG_VERSION,ARG_VERSION2} EArgStrings;
 
 #define BASIC_COMMANDS "NOOP,USER,PASS,PORT,XCWD,CWD,XCUP,CDUP,TYPE,RETR,STOR,LIST,NLST,MLST,MLSD,XDEL,DELE,QUIT,XPWD,PWD,XMKD,MKD,XRMD,RMD,RNFR,RNTO,PASV,FEAT"
 
@@ -31,13 +31,15 @@ char *ReadBannerFile(char *RetStr, char *Path)
 {
 char *Tempstr=NULL;
 STREAM *S;
+int result;
 
 S=STREAMOpenFile(Path, SF_RDONLY);
 if (! S) return(RetStr);
 
 Tempstr=SetStrLen(Tempstr,8196);
-STREAMReadBytes(S, Tempstr, 8196);
+result=STREAMReadBytes(S, Tempstr, 8196);
 RetStr=CopyStr(RetStr,Tempstr);
+Tempstr[result]='\0';
 
 DestroyString(Tempstr);
 STREAMClose(S);
@@ -51,8 +53,8 @@ void ParseConfigItem(char *ConfigLine)
 {
 char *Token=NULL, *ptr;
 int result;
-const char *ConfTokens[]={"Chroot","Chshare","Chhome","AllowUsers","DenyUsers","Port","Banner","BannerFile","DataConnectionLowPort","DataConnectionHighPort","DataConnectionPortRange","ServLogFile","LogFile","Idle","MaxIdle","Locks","AuthFile","BindAddress","LogPasswords","AuthMethods","UserPrompt","PermittedCommands","DefaultGroup","MaxFileSize","UploadHook", "DownloadHook","RenameHook","DeleteHook","LoginHook","LogoutHook","ConnectUpHook","ConnectDownHook",NULL};
-typedef enum {CT_CHROOT, CT_CHSHARE, CT_CHHOME, CT_ALLOWUSERS,CT_DENYUSERS,CT_PORT,CT_BANNER,CT_BANNERFILE,CT_DC_LOW_PORT, CT_DC_HIGH_PORT, CT_DC_RANGE,CT_SERVLOGFILE,CT_LOGFILE,CT_IDLE,CT_MAXIDLE,CT_LOCKS,CT_AUTHFILE,CT_BINDADDRESS,CT_LOGPASSWORDS,CT_AUTHMETHODS,CT_USERPROMPT,CT_PERMITTEDCOMMANDS,CT_DEFAULTGROUP, CT_MAXFILESIZE, CT_UPLOADHOOK, CT_DOWNLOADHOOK, CT_RENAMEHOOK, CT_DELETEHOOK, CT_LOGINHOOK, CT_LOGOUTHOOK, CT_CONNECTUPHOOK, CT_CONNECTDOWNHOOK} EConfigStrings;
+const char *ConfTokens[]={"Chroot","Chshare","Chhome","AllowUsers","DenyUsers","Port","Banner","BannerFile","DataConnectionLowPort","DataConnectionHighPort","DataConnectionPortRange","ServLogFile","LogFile","Idle","MaxIdle","Locks","AuthFile","BindAddress","LogPasswords","AuthMethods","UserPrompt","PermittedCommands","DefaultGroup","MaxFileSize","UploadHook", "DownloadHook","RenameHook","DeleteHook","LoginHook","LogoutHook","ConnectUpHook","ConnectDownHook","ConfirmTransfer",NULL};
+typedef enum {CT_CHROOT, CT_CHSHARE, CT_CHHOME, CT_ALLOWUSERS,CT_DENYUSERS,CT_PORT,CT_BANNER,CT_BANNERFILE,CT_DC_LOW_PORT, CT_DC_HIGH_PORT, CT_DC_RANGE,CT_SERVLOGFILE,CT_LOGFILE,CT_IDLE,CT_MAXIDLE,CT_LOCKS,CT_AUTHFILE,CT_BINDADDRESS,CT_LOGPASSWORDS,CT_AUTHMETHODS,CT_USERPROMPT,CT_PERMITTEDCOMMANDS,CT_DEFAULTGROUP, CT_MAXFILESIZE, CT_UPLOADHOOK, CT_DOWNLOADHOOK, CT_RENAMEHOOK, CT_DELETEHOOK, CT_LOGINHOOK, CT_LOGOUTHOOK, CT_CONNECTUPHOOK, CT_CONNECTDOWNHOOK, CT_CONFIRM_TRANSFER} EConfigStrings;
 struct group *grent;
 
 
@@ -204,6 +206,10 @@ struct group *grent;
 		Settings.ConnectDownHook=CopyStr(Settings.ConnectDownHook,ptr);
 	break;
 
+	case CT_CONFIRM_TRANSFER:
+		Settings.ConfirmTransfer=MatchTokenFromList(ptr,HashNames,0);
+	break;
+
 
   }
 
@@ -215,7 +221,46 @@ DestroyString(Token);
 
 void PrintUsage()
 {
-char *UseStrings[]={"Proxy Mode. Act as a transparent proxy, requires a kernel that supports obtaining the 'target' address. By-request proxying that's triggered by logins containing a hostname, or by use of the 'SITE proxy' command do not need this.","ChHome. Chroot into the home dir of the user after logon","ChRoot. ChRoot to directory on program start","Chroot to a shared directory with user subdirectories in it","Port to listen on (default 21)","Port to listen on (default 21)","Use IPv4 only","Don't background","Use out of inetd, not as standalone server","Use out of inetd, not as standalone server","path to config file","path to 'native' authentication file","List of users allowed to log on","List of users to deny logon to","Don't use passive mode","Minimum port for Data connections","Maximum port for Data connections","Logfile Path","Logfile Path","Use syslog for logging","'Soft' idle timeout (user can override)","'Hard' idle timeout","Mandatory Locks","Advisory Locks","Mandartory write, Advisory read Locks","Bind server to address/interface","Bind server to address/interface","Data Connnection Up Script","Data Connection DownScript","This help","This help","This help","Print version","Print Version",NULL};
+char *UseStrings[]={"Proxy Mode. Act as a transparent proxy, requires a kernel that supports obtaining the 'target' address.\n		By-request proxying that's triggered by logins containing a hostname, or by use of the 'SITE proxy' command do not need this.",
+"ChHome. Chroot into the home dir of the user after logon",
+"<dir>	ChRoot to directory on program start",
+"<dir>	Chroot to a shared directory with user subdirectories in it",
+"<port>	Port to listen on (default 21)",
+"<port>	Port to listen on (default 21)",
+"Use IPv4 only",
+"Don't background",
+"Use out of inetd, not as standalone server",
+"Use out of inetd, not as standalone server",
+"<path>	path to config file",
+"<methods list>	Comma-separated ist of authentication methods",
+"<path>	path to 'native' authentication file",
+"<user list>	Comma-seperated list of users allowed to log on",
+"<user list>	Comma-seperated list of users to deny logon to",
+"Don't use passive mode",
+"<port>	Minimum port for Data connections",
+"<port>	Maximum port for Data connections",
+"<path>	Logfile Path",
+"<path>	Logfile Path",
+"Use syslog for logging",
+"<secs>	'Soft' idle timeout (user can override)",
+"<secs>	'Hard' idle timeout",
+"Mandatory Locks",
+"Advisory Locks",
+"Mandatory write, Advisory read Locks",
+"<address>	Bind server to address/interface",
+"<address>	Bind server to address/interface",
+"<script path>	Data Connnection Up Script",
+"<script path>	Data Connection DownScript",
+"<hash type>	Update Password Hash Type",
+"<hash type>	Confirm Transfer using Hash Type",
+"This help",
+"This help",
+"This help",
+"Print version",
+"Print Version",
+NULL};
+
+
 int i;
 
 fprintf(stdout,"\nMetaFTPd FTP Server: version %s\n",Version);
@@ -444,6 +489,9 @@ for (count=1; count < argc; count++)
 	break;
 
 
+	case ARG_CONFIRM_TRANSFER:
+		Settings.ConfirmTransfer=MatchTokenFromList(argv[++count],HashNames,0);
+	break;
 
 /*
 	case ARG_PERMITTEDCOMMANDS:

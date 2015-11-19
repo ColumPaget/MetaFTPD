@@ -19,4 +19,5 @@ int AuthMD5(TSession *);
 int AuthPAM(TSession *);
 //void EncodeMD5(char *, char *,int);
 char *GetUserHomeDir(char *UserName);
+int UpdateNativeFile(const char *Path, const char *Name, const char *PassType, const char *Pass, const char *HomeDir, const char *RealUser, const char *Args);
 #endif

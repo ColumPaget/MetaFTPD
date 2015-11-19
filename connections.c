@@ -290,14 +290,14 @@ if (DataCon->Flags & DC_OUTGOING)
 	Type="ToClient";
 
 	result=MakeOutgoingDataConnection(Session, Session->ClientSock, DataCon, Type);
-	if (StrLen(Message)) SendLoggedLine(Message,Session->ClientSock);
+	if (StrLen(Message)) SendLoggedLine(Session,Message);
 }
 else 
 {
 	DataCon->DestAddress=CopyStr(DataCon->DestAddress,Session->LocalIP);
 	Type="FromClient";
 
-	if (StrLen(Message)) SendLoggedLine(Message,Session->ClientSock);
+	if (StrLen(Message)) SendLoggedLine(Session,Message);
 	result=MakeIncomingDataConnection(Session, Session->ClientSock, DataCon, Type);
 }
 
@@ -441,7 +441,10 @@ ListNode *Vars;
 
 	Buffer=SubstituteVarsInString(Buffer,MsgStr,Vars,0);
 
-	SendLoggedLine(Buffer,PeerSock);
+	//SendLoggedLine(Buffer,PeerSock);
+	Buffer=CatStr(Buffer,"\r\n");
+	STREAMWriteLine(Buffer,PeerSock);
+	STREAMFlush(PeerSock);
 	DC->Flags=DC_INCOMING;
 
 	ListDestroy(Vars,DestroyString);

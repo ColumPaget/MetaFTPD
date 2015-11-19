@@ -4,7 +4,7 @@
 
 #include "common.h"
 
-
+void SendLoggedLine(TSession *Session,char *Data);
 int MatchFtpCommand(char *Command);
 void FTPDoCommand(TSession *Session, char *Command, char *Arg);
 

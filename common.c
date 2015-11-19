@@ -3,6 +3,7 @@
 #include "Settings.h"
 
 char *Version="1.1.0";
+const char *HashNames[]={"CRC32","MD5","SHA-1","SHA-256","SHA-512","WHIRL",NULL};
 
 
 int DecodePORTStr(char *PortStr, char **Address, int *Port)
@@ -48,6 +49,8 @@ int RetVal=TRUE;
 
 return(RetVal);
 }
+
+
 
 char *StripCR(char *RetStr,char *Data, int Len)
 {
@@ -108,15 +111,31 @@ int result, Len=BUFSIZ;
 	*/
 
 	if (Len > BUFSIZ) Len=BUFSIZ;
-
+	Buffer=SetStrLen(Buffer, Len);
+	
   if (Session->Flags & SESSION_ASCII_TRANSFERS)
   {
 		result=STREAMReadBytes(DC->Input,Buffer,BUFSIZ);
+		if (result > 0)
+		{
 		if (DC->Flags & DC_STOR) Tempstr=StripCR(Tempstr,Buffer,Len);
     else Tempstr=ExpandLF(Tempstr,Buffer,Len);
 		result=STREAMWriteBytes(DC->Output,Tempstr,StrLen(Tempstr));
+		}
   }
-  else result=STREAMSendFile(DC->Input, DC->Output, Len, SENDFILE_KERNEL | SENDFILE_LOOP);
+  else if (DC->Hash)
+	{
+		result=STREAMReadBytes(DC->Input,Buffer,BUFSIZ);
+		if (result > 0)
+		{
+		DC->Hash->Update(DC->Hash, Buffer, result);
+		result=STREAMWriteBytes(DC->Output,Buffer,result);
+		}
+	}
+	else
+	{
+		result=STREAMSendFile(DC->Input, DC->Output, Len, SENDFILE_KERNEL);
+	}
 
 	//result can be negative for 'STREAMClosed'
 	if (result < 0) result=0;

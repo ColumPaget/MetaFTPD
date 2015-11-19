@@ -111,7 +111,7 @@ char *Tempstr=NULL, *HookArgs=NULL;
 
 		Tempstr=MCopyStr(Tempstr,Status," '",DC->FileName,"' ",Error,NULL);
 		CloseDataConnection(Session, DC);
-		SendLoggedLine(Tempstr,Session->ClientSock);
+		SendLoggedLine(Session,Tempstr);
 		LogToFile(Settings.LogPath,"EndTransfer: %s",HookArgs);
     Tempstr=IPCRequest(Tempstr, Session, "RunHook", HookArgs);
 
@@ -127,7 +127,7 @@ int highfd, result;
 ListNode *Curr, *Next;
 TDataConnection *DC;
 STREAM *S;
-char *Tempstr=NULL;
+char *Tempstr=NULL, *Line=NULL;
 struct timeval tv;
 
 while (1)
@@ -151,7 +151,8 @@ if (S)
 		Next=ListGetNext(Curr);
 		DC=(TDataConnection *) STREAMGetItem((STREAM *) Curr->Item, "DataCon");
 
-		if (DC && STREAMCheckForBytes(DC->Input))
+//|| STREAMCheckForBytes(DC->Input))
+		if (DC && (S==DC->Input) )
 		{
 			result=FtpCopyBytes(Session,DC);
 			switch (result)
@@ -162,8 +163,13 @@ if (S)
 				break;
 
 				case 0:
-				Tempstr=FormatStr(Tempstr,"%s bytes Transferred",GetHumanReadableDataQty(DC->BytesSent,0));
-				EndTransfer(Session, DC, "226 OK", Tempstr);
+				Line=FormatStr(Line,"%s bytes Transferred",GetHumanReadableDataQty(DC->BytesSent,0));
+				if (DC->Hash)
+				{
+					DC->Hash->Finish(DC->Hash, ENCODE_HEX, &Tempstr);
+					Line=MCatStr(Line," ",DC->Hash->Type,"=",Tempstr,NULL);
+				}
+				EndTransfer(Session, DC, "226 OK", Line);
 				ListDeleteNode(Curr);
 				break;
 			}
@@ -172,11 +178,12 @@ if (S)
 	}
 	}
 }
-
-SessionCheckIdleTimeout(Session);
+//if No 'S' returned, then we timed out, so check idle
+else SessionCheckIdleTimeout(Session);
 }
 
 DestroyString(Tempstr);
+DestroyString(Line);
 }
 
 
@@ -186,11 +193,11 @@ char *BuildConnectBanner(char *RetStr, TSession *Session)
 char *Token=NULL, *HashPassTypes=NULL, *ptr;
 
 	RetStr=CopyStr(RetStr, "");
-	ptr=GetToken(Settings.AuthMethods, ",",&Token,NULL);
+	ptr=GetToken(Settings.AuthMethods, ",",&Token,0);
 	while (ptr)
 	{
 	if (strncmp(Token,"hp-",3)==0) HashPassTypes=MCatStr(HashPassTypes,Token,",",NULL);
-	ptr=GetToken(ptr, ",",&Token,NULL);
+	ptr=GetToken(ptr, ",",&Token,0);
 	}
 
 	if (StrLen(HashPassTypes) || StrLen(Settings.ConnectBanner))
