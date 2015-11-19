@@ -278,7 +278,8 @@ fprintf(stdout,"	metaftpd -user add <username> <password> <home directory> [ -t 
 fprintf(stdout,"	metaftpd -user del <username> [ -a <auth file path> ]\n");
 fprintf(stdout,"	metaftpd -user list [ -a <auth file path> ]\n\n");
 fprintf(stdout,"	-a Path to authentication file for 'native' authentication (defaults to /dev/metaftpd.auth)\n");
-fprintf(stdout,"	-t password type, one of plaintext/md5/sha1/sha256/sha512 (defaults to md5)\n");
+fprintf(stdout,"	-t password type, one of plaintext/md5/sha1/sha256/sha512/whirl (defaults to md5)\n");
+fprintf(stdout,"	-e password type, one of plaintext/md5/sha1/sha256/sha512/whirl (defaults to md5)\n");
 fprintf(stdout,"	Arg (1-n). Arguments in config-file format (Key=Value) can be set against a particular user\n\n");
 fprintf(stdout,"	Config File Entries\n");
 fprintf(stdout,"	These all have a format Key=Value, except for the few that are just 'Key'\n");
@@ -294,7 +295,8 @@ fprintf(stdout,"		Banner=<text> 'Banner' to send on initial control-connection\n
 fprintf(stdout,"		DataConnectionLowPort=<port number> low end of port range to use for data connectons\n");
 fprintf(stdout,"		DataConnectionHighPort=<port number> high end of port range to use for data connections\n");
 fprintf(stdout,"		AuthFile=<path> Path to file for 'Native' authentication\n");
-fprintf(stdout,"		AuthMethods=<comma seperated list> List of authentication methods a subset of pam,passwd,shadow,native\n");
+fprintf(stdout,"		AuthMethods=<comma seperated list> List of authentication methods a subset of pam,passwd,shadow,native,session-pam\n");
+fprintf(stdout,"			session-pam applies PAM account/session rules to other authentication methods\n");
 fprintf(stdout,"		LogFile=<path> LogFile Path (can include the variables '$(User)' and '$(ClientIP)'\n");
 fprintf(stdout,"		Idle=<timeout> Idle timeout for control connections, user overridable soft limit\n");
 fprintf(stdout,"		MaxIdle=<timeout> Idle timeout for control connections, hard limit\n");
@@ -302,6 +304,7 @@ fprintf(stdout,"		Locks=<timeout> Idle timeout for control connections\n");
 fprintf(stdout,"		BindAddress=<ip address> Bind to specific network address/card.\n");
 fprintf(stdout,"		PermittedCommands=<comma seperated list of ftp commands> Allowed FTP commands.\n");
 fprintf(stdout,"		DefaultGroup=<Group name> Group to run server as.\n");
+fprintf(stdout,"		ConfirmTransfers=<hash type> confirm transfers with a hash, one of md5/sha1/sha256/sha512/whirl\n");
 
 fprintf(stdout,"		UploadHook=<path to script>	Script to be run AFTER file uploaded.\n");
 fprintf(stdout,"		DownloadHook=<path to script>	Script to be run AFTER file uploaded.\n");
@@ -333,12 +336,17 @@ Path=CopyStr(Path,"/etc/metaftpd.auth");
 if (strcmp(argv[2],"add")==0) Type=CopyStr(Type,"md5");
 else if (strcmp(argv[2],"del")==0) Type=CopyStr(Type,"delete");
 else if (strcmp(argv[2],"list")==0) Type=CopyStr(Type,"list");
-else printf("ERROR: -user must have 'add', 'del' or 'list' as it's next argument\n");
+else 
+{
+	printf("ERROR: -user must have 'add', 'del' or 'list' as it's next argument\n");
+	exit(1);
+}
 
 for (i=3; i < argc; i++)
 {
 	if (strcmp(argv[i],"-a")==0) Path=CopyStr(Path,argv[++i]);
 	else if (strcmp(argv[i],"-t")==0) Type=CopyStr(Type,argv[++i]);
+	else if (strcmp(argv[i],"-e")==0) Type=CopyStr(Type,argv[++i]);
 	else if (StrLen(User)==0) User=CopyStr(User,argv[i]);
 	else if (StrLen(Pass)==0) Pass=CopyStr(Pass,argv[i]);
 	else if (StrLen(Dir)==0) Dir=CopyStr(Dir,argv[i]);

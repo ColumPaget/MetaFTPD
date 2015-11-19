@@ -276,7 +276,6 @@ if (! pamh)
 {
 	if (! PAMStart(Session, Session->RealUser)) return(FALSE);
 }
-fprintf(stderr,"APCS!\n");
 
 if (pam_acct_mgmt(pamh, 0)==PAM_SUCCESS) 
 {
@@ -349,20 +348,18 @@ int RetVal=FALSE;
 
 int CheckNativeFileHashedPassword(const char *PasswordType, const char *Name, const char *Salt, const char *Password, const char *ProvidedPass)
 {
-char *HashTypes[]={"md5","sha1","sha256","sha512","whirlpool","jh-224","jh-256","jh-384","jh-512",NULL};
 char *Digest=NULL, *Tempstr=NULL;
 int RetVal=FALSE;
 int i;
 
-for (i=0; (! RetVal) && (HashTypes[i] !=NULL); i++)
+for (i=0; (! RetVal) && (HashNames[i] !=NULL); i++)
 {
-if (strcmp(PasswordType,HashTypes[i])==0) 
-{
+	if (strcasecmp(PasswordType,HashNames[i])==0) 
+	{
 	Tempstr=MCopyStr(Tempstr,Name,Salt,ProvidedPass,NULL);
-	HashBytes(&Digest,HashTypes[i],Tempstr,StrLen(Tempstr),ENCODE_HEX);
+	HashBytes(&Digest,HashNames[i],Tempstr,StrLen(Tempstr),ENCODE_HEX);
 	if (strcasecmp(Password,Digest)==0) RetVal=TRUE;
-LogToFile(Settings.ServerLogPath,"PASS: [%s] [%s] [%s]",Password,Digest,ProvidedPass);
-}
+	}
 }
 
 DestroyString(Tempstr);
@@ -617,9 +614,6 @@ while (ptr)
 ptr=GetToken(Settings.AuthMethods,",",&Token,0);
 while (ptr)
 {
-
-fprintf(stderr,"%s\n",Token);
-
 	if (strcasecmp(Token,"native")==0) result=AuthNativeFile(Session);
 	else if (strcasecmp(Token,"shadow")==0) result=AuthShadowFile(Session);
 	else if (strcasecmp(Token,"passwd")==0) result=AuthPasswdFile(Session);
@@ -669,7 +663,6 @@ if (result)
 	}
 }
 
-fprintf(stderr,"PS2! %d\n",Session->Flags & SESSION_PAM);
 
 //check again, because may have changed in above block
 if (result && (Session->Flags & SESSION_PAM))

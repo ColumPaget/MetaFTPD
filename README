@@ -15,77 +15,91 @@ SYNOPSIS:
 
 	MetaFTPd is an ftp demon that supports both standalone and inetd operation, transparent proxying, chrooting, compressed file transfers and extended commands like XMD5 and SITE CHMOD.
 
+
 USAGE:
 Command Line Arguments:
 
--proxy          Proxy Mode. Act as a transparent proxy, requires a kernel that supports obtaining the 'target' address. By-request proxying that's triggered by logins containing a hostname, or by use of the 'SITE proxy' command do not need this.
--chroot         ChRoot. ChRoot to directory on program start.
--chhome         ChHome. Chroot into the home dir of the user after logon.
--chshare				ChShare, chroot into a shared directory after logon.
--port           Port to listen on (default 21)
--p              Port to listen on (default 21)
--4              Only use IPv4.
+-proxy          Proxy Mode. Act as a transparent proxy, requires a kernel that supports obtaining the 'target' address.
+		By-request proxying that's triggered by logins containing a hostname, or by use of the 'SITE proxy' command do not need this.
+-chhome         ChHome. Chroot into the home dir of the user after logon
+-chroot         <dir>	ChRoot to directory on program start
+-chshare        <dir>	Chroot to a shared directory with user subdirectories in it
+-port           <port>	Port to listen on (default 21)
+-p              <port>	Port to listen on (default 21)
+-4              Use IPv4 only
 -nodemon        Don't background
--I              Use out of inetd, not as standalone server (implies -nodemon)
--inetd          Use out of inetd, not as standalone server (implies -nodemon)
--f              path to config file
--a              path to 'native' authentication file
--allowusers     List of users allowed to log on
--denyusers      List of users to deny logon to
+-I              Use out of inetd, not as standalone server
+-inetd          Use out of inetd, not as standalone server
+-f              <path>	path to config file
+-A              <methods list>	Comma-separated ist of authentication methods (pam,passwd,shadow,native,session-pam)
+
+-a              <path>	path to 'native' authentication file
+-allowusers     <user list>	Comma-seperated list of users allowed to log on
+-denyusers      <user list>	Comma-seperated list of users to deny logon to
 -nopasv         Don't use passive mode
--dclow          Minimum port for Data connections
--dchigh         Maximum port for Data connections
+-dclow          <port>	Minimum port for Data connections
+-dchigh         <port>	Maximum port for Data connections
+-logfile        <path>	Logfile Path
+-l              <path>	Logfile Path
 -syslog         Use syslog for logging
--hostlogs       Create logfiles for each host (not syslog)
--idle           'Soft' idle timeout (user can override)
--maxidle        'Hard' idle timeout
+-idle           <secs>	'Soft' idle timeout (user can override)
+-maxidle        <secs>	'Hard' idle timeout
 -mlocks         Mandatory Locks
 -alocks         Advisory Locks
 -malocks        Mandatory write, Advisory read Locks
--i              Bind server to address/interface
--bindaddress    Bind server to address/interface
--logfile        Logfile path, can include the variables $(ClientIP) and $(User)
--dcus           Data Connnection Up Script
--dcds           Data Connection DownScript
+-i              <address>	Bind server to address/interface
+-bindaddress    <address>	Bind server to address/interface
+-dcus           <script path>	Data Connnection Up Script
+-dcds           <script path>	Data Connection DownScript
+-update-pass    <hash type>	Update Password Hash Type
+-confirm-transfer <hash type>	Confirm Transfer using Hash Type
 -?              This help
 -help           This help
 --help          This help
+-version        Print version
+--version       Print Version
 
 -user 'Native' user authentication setup
-        metaftpd -user add <username> <password> <home directory> [ -t <authentication type> ] [ -a <auth file path> ] [Arg 1] [Arg 2]... [Arg n]
-        metaftpd -user del <username> [ -a <auth file path> ]
-        metaftpd -user list [ -a <auth file path> ]
+	metaftpd -user add <username> <password> <home directory> [ -t <authentication type> ] [ -a <auth file path> ] [Arg 1] [Arg 2]... [Arg n]
+	metaftpd -user del <username> [ -a <auth file path> ]
+	metaftpd -user list [ -a <auth file path> ]
 
-        -a Path to authentication file for 'native' authentication (defaults to /dev/metaftpd.auth)
-        -t password type, one of plaintext/md5/sha1/sha256/sha512 (defaults to md5)
-        Arg (1-n). Arguments in config-file format (Key=Value) can be set against a particular user
+	-a Path to authentication file for 'native' authentication (defaults to /dev/metaftpd.auth)
+	-t password type, one of plaintext/md5/sha1/sha256/sha512/whirl (defaults to md5)
+	Arg (1-n). Arguments in config-file format (Key=Value) can be set against a particular user
 
-Config File Entries
+	Config File Entries
 	These all have a format Key=Value, except for the few that are just 'Key'
-
-	ChHome		Chroot into users home dir after login (this has no arguments)
-	ChShare=<path> Chroot into shared directory after logon
-	ChRoot=<path>	Chroot into <path> at start up and serve files from there.
-	AllowUsers=<comma seperated user list> Users allowed to log in
-	DenyUsers=<comma seperated user list> Users denied log in
-	Port=<port number> Port to listen on for command connections
-	DataConnectUpScript=<script path> Script to run (for changing iptables etc) when bringing up a data connection
-	DataConnectDownScript=<script path> Script to run (for changing iptables etc) when taking down a data connection
-	DataConnectionLowPort=<port number> low end of port range to use for data connectons
-	DataConnectionHighPort=<port number> high end of port range to use for data connections
-	AuthFile=<path> Path to file for 'Native' authentication
-	AuthMethods=<comma seperated list> List of authentication methods a subset of pam,passwd,shadow,native
-	ServerLogFile=<path> LogFile Path for top-level 'service' process or other thigns that don't concern users
-	LogFile=<path> LogFile Path for user processes. Can include the variables $(User) $(ClientIP) to create per-user or per-client logs.
-	Banner=<text> 'Banner' to send on initial control-connection
-	Idle=<timeout> Idle timeout for control connections, user overridable soft limit
-	MaxIdle=<timeout> Idle timeout for control connections, hard limit
-	Locks=<lock type> Set file lock types (see below) Can be "Advisory", "Mandatory", or "MandatoryWrite"
-	BindAddress=<ip address> Bind to specific network address/card.
-	PermittedCommands=<comma seperated list of ftp commands> Allowed FTP commands.
-	DefaultGroup=<Group name> Group to run server as.
-	MaxFileSize=<bytes> Maximum file size for upload
-
+		Chroot=<path>	Chroot into <path> and serve files from there
+		ChHome		Chroot into users home directory after login
+		AllowUsers=<comma seperated user list> Users allowed to log in
+		DenyUsers=<comma seperated user list> Users denied log in
+		Port=<port number> Port to listen on for command connections
+		DataConnectUpScript=<script path> Script to run (for changing iptables etc) when bringing up a data connection
+		DataConnectDownScript=<script path> Script to run (for changing iptables etc) when taking down a data connection
+		Banner=<text> 'Banner' to send on initial control-connection
+		DataConnectionLowPort=<port number> low end of port range to use for data connectons
+		DataConnectionHighPort=<port number> high end of port range to use for data connections
+		AuthFile=<path> Path to file for 'Native' authentication
+		AuthMethods=<comma seperated list> List of authentication methods a subset of pam,passwd,shadow,native,session-pam
+			session-pam applies PAM account/session rules to other authentication methods
+		LogFile=<path> LogFile Path (can include the variables '$(User)' and '$(ClientIP)'
+		Idle=<timeout> Idle timeout for control connections, user overridable soft limit
+		MaxIdle=<timeout> Idle timeout for control connections, hard limit
+		Locks=<timeout> Idle timeout for control connections
+		BindAddress=<ip address> Bind to specific network address/card.
+		PermittedCommands=<comma seperated list of ftp commands> Allowed FTP commands.
+		DefaultGroup=<Group name> Group to run server as.
+		ConfirmTransfers=<hash type> confirm transfers with a hash, one of md5/sha1/sha256/sha512/whirl
+		UploadHook=<path to script>	Script to be run AFTER file uploaded.
+		DownloadHook=<path to script>	Script to be run AFTER file uploaded.
+		DeleteHook=<path to script>	Script to be run AFTER file deleted.
+		RenameHook=<path to script>	Script to be run AFTER file renamed.
+		LogonHook=<path to script>	Script to be run AFTER user Logon.
+		LogoffHook=<path to script>	Script to be run AFTER user Logoff.
+		ConnectUpHook=<path to script>	Script to be run BEFORE data connection established.
+		ConnectDownHook=<path to script>	Script to be run AFTER data connection closed.
+		Hook scripts are all passed appropriate arguments, filepath, username or ip/port info
 
 
 ANONYMOUS LOGIN
@@ -93,6 +107,14 @@ ANONYMOUS LOGIN
 Anonymous login is possible using 'native' authentication, and creating a user with a special password type of 'null'. So:
 
 metaftpd -user add anonymous -t null -h /tmp
+
+PAM AUTHENTICATION
+
+metaftpd supports PAM authentication, and if 'pam' is specified as an authentication method, the server will try to load a config from /etc/pam.d for 'metaftpd' falling back to 'ftp' and then falling back to 'other'.
+
+SESSION-PAM AUTH METHOD
+
+Most authentication methods handle authentication, however the session-pam option doesn't authenticate the user. Instead this option applies the non-authentication parts of the Pluggable Authentication Modules framework to other authentication types than PAM. PAM deals with authentication, account management, and session setup. Account management can be used to deny logon for accounts even after they've authenticated (for instance because the account is locked, or has expired, or has failed some other check other than authentication). The session-pam auth method allows one to authenticate by any means, but still run other checks and session setup via PAM. For instance, you may have a user called 'ftpuser' setup via the 'native' authentication method, which maps to a 'real user' of 'nobody'. With the pam-session option enabled metaftpd with first authenticate 'ftpuser' via the native method, and then check that the 'nobody' account is allowed to log on, even if it's authenticated. This system can be used, for instance, with my pam_ihosts PAM module (http://github.com/ColumPaget/pam_ihosts) which allows one to allow/deny login based on IP address, mac address, or geolocation, even if the user has authenticated successfully.
 
 
 CHROOT/CHSHARE/CHHOME 
@@ -106,7 +128,7 @@ metaftpd supports three types of chroot operation.
 3) ChHome mode. This chroots the user into their home directory, so they can only see their own files. If the user has no home directory, then the chdir to the default directory (defaults to directory metaftpd was started in).
 
 
-Data Connections
+DATA CONNECTIONS
 
 A recurring problem with FTP is that it uses data connections from/to random ports, and which can go in either direction depending on whether PORT or PASV type data-connections are used. This is a problem for firewalls. Metaftpd mitigates this by two methods:
 
@@ -119,6 +141,15 @@ Scripts are passed arguments in this order:
 SourceAddress, SourcePort, DestAddress, DestPort, ConnectType
 
 Where 'ConnectType' will be 'FromClient' for passive-mode data connections to a client, 'ToClient' for active-mode data connections to a client, 'ToServer' for proxy-mode connections to a server, and 'FromServer' for proxy-mode connections from a server.
+
+
+TRANSFER CONFIRMS
+
+The -confirm-transfers command-line option and ConfirmTransfers config file option allow one to specify a hash function that will be used to confirm the file transferred successfully. If enabled, e.g. with
+
+	ConfirmTransfers=md5
+
+Then the "211 transfer-complete" status message from the metaftpd server will contain a substring of the field <hashtype>=<hash>, which can be used to confirm that the file transferred successfully.
 
 
 PROXY MODE:

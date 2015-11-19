@@ -3,7 +3,7 @@
 #include "Settings.h"
 
 char *Version="1.1.0";
-const char *HashNames[]={"CRC32","MD5","SHA-1","SHA-256","SHA-512","WHIRL",NULL};
+const char *HashNames[]={"CRC32","MD5","SHA-1","SHA-256","SHA-512","WHIRL","WHIRLPOOL","JH-224","JH-256","JH-384","JH-512",NULL};
 
 
 int DecodePORTStr(char *PortStr, char **Address, int *Port)
