@@ -277,9 +277,11 @@ if (! (Settings.Flags & MODE_INETD))
 
 GetIntendedDestination(SA->client_infd, Session);
 
+if (StrLen(Session->DestIP) && (strcmp(Session->DestIP,Session->LocalIP)==0)) Session->DestIP=CopyStr(Session->DestIP,"");
+
+//Check DestIP again, as may have been changed
 if (StrLen(Session->DestIP))
 {
-	if (strcmp(Session->DestIP,Session->LocalIP)==0) Session->DestIP=CopyStr(Session->DestIP,"");
 	LogToFile(Settings.ServerLogPath,"Connection from %s to %s\n",Session->ClientIP,Session->DestIP);
 
 	if (Session->Flags & SESSION_FTP_PROXY)
