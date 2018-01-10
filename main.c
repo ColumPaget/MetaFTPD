@@ -482,7 +482,8 @@ else
 	}
 
 	DropCapabilities(CAPS_LEVEL_NETBOUND);
-	Tempstr=FormatStr(Tempstr,"metaftpd-port%d",Settings.Port);
+	if (StrLen(Settings.BindAddress) && (strcmp(Settings.BindAddress,"0.0.0.0") !=0) ) Tempstr=FormatStr(Tempstr,"metaftpd-%s-port%d",Settings.BindAddress, Settings.Port);
+	else Tempstr=FormatStr(Tempstr,"metaftpd-port%d",Settings.Port);
 	WritePidFile(Tempstr);
 
 	if (Settings.Flags & FLAG_CHROOT)
